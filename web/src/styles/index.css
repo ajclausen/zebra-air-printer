@@ -1,0 +1,164 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import './fonts.css';
+
+/*
+ * ECO Label Studio design language.
+ *
+ * The printed label is the hero: pure black on white thermal stock. The chrome
+ * around it is cool, quiet neutrals with a single cobalt accent reserved for
+ * selection, focus, and the primary Print action.
+ */
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Neutrals (cool) */
+  --color-paper: #ffffff;
+  --color-surface: #f5f6f8;
+  --color-desk: #e3e5e9;
+  --color-desk-deep: #d6d9de;
+  --color-line: #dcdfe4;
+  --color-line-strong: #c5c9d0;
+  --color-ink: #181a1f;
+  --color-ink-2: #3b3f47;
+  --color-ink-3: #6b707a;
+  --color-ink-4: #9aa0a9;
+
+  /* Accent */
+  --color-cobalt: #2f5bff;
+  --color-cobalt-strong: #1f47e0;
+  --color-cobalt-soft: #e8eeff;
+  --color-cobalt-ring: #2f5bff66;
+
+  /* Status */
+  --color-ok: #14804a;
+  --color-ok-soft: #e3f4ea;
+  --color-warn: #a15c00;
+  --color-warn-soft: #fff1d6;
+  --color-bad: #c42b1c;
+  --color-bad-soft: #fde8e6;
+
+  /* shadcn semantic aliases */
+  --color-background: var(--color-surface);
+  --color-foreground: var(--color-ink);
+  --color-card: var(--color-paper);
+  --color-card-foreground: var(--color-ink);
+  --color-popover: var(--color-paper);
+  --color-popover-foreground: var(--color-ink);
+  --color-primary: var(--color-cobalt);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #eceef2;
+  --color-secondary-foreground: var(--color-ink);
+  --color-muted: #eceef2;
+  --color-muted-foreground: var(--color-ink-3);
+  --color-accent: #eceef2;
+  --color-accent-foreground: var(--color-ink);
+  --color-destructive: var(--color-bad);
+  --color-destructive-foreground: #ffffff;
+  --color-border: var(--color-line);
+  --color-input: var(--color-line-strong);
+  --color-ring: var(--color-cobalt);
+
+  /* Type scale (1.2 minor third around a 13px UI base) */
+  --text-2xs: 11px;
+  --text-2xs--line-height: 14px;
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 13px;
+  --text-sm--line-height: 18px;
+  --text-base: 14px;
+  --text-base--line-height: 20px;
+  --text-lg: 16px;
+  --text-lg--line-height: 22px;
+  --text-xl: 19px;
+  --text-xl--line-height: 26px;
+  --text-2xl: 23px;
+  --text-2xl--line-height: 30px;
+  --text-3xl: 28px;
+  --text-3xl--line-height: 34px;
+
+  /* Radius: small controls, medium surfaces, large dialogs */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --shadow-pop: 0 1px 2px rgb(24 26 31 / 0.06), 0 8px 24px -6px rgb(24 26 31 / 0.18);
+  --shadow-dialog: 0 2px 6px rgb(24 26 31 / 0.08), 0 24px 64px -12px rgb(24 26 31 / 0.35);
+  --shadow-label: 0 0 0 1px rgb(24 26 31 / 0.06), 0 1px 1px rgb(24 26 31 / 0.08),
+    0 6px 14px -4px rgb(24 26 31 / 0.18), 0 28px 48px -24px rgb(24 26 31 / 0.35);
+
+  --animate-pulse-dot: pulse-dot 1.4s ease-in-out infinite;
+  @keyframes pulse-dot {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    background: var(--color-surface);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-cobalt);
+    outline-offset: 2px;
+  }
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']) {
+    cursor: pointer;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The work surface behind the label: a faint quarter-inch dot grid. */
+@utility desk {
+  background-color: var(--color-desk);
+  background-image: radial-gradient(rgb(24 26 31 / 0.09) 1px, transparent 1.2px);
+  background-size: 16px 16px;
+}
+
+@utility checkerboard {
+  background-color: #fff;
+  background-image: linear-gradient(45deg, #eef0f3 25%, transparent 25%),
+    linear-gradient(-45deg, #eef0f3 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #eef0f3 75%),
+    linear-gradient(-45deg, transparent 75%, #eef0f3 75%);
+  background-size: 12px 12px;
+  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+}
+
+@utility pixelated {
+  image-rendering: pixelated;
+}
