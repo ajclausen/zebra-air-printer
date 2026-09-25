@@ -231,7 +231,7 @@ async function readJsonBody(req: Connect.IncomingMessage): Promise<unknown> {
   try {
     return JSON.parse(buf.toString('utf8'));
   } catch {
-    throw new HttpError(400, 'invalid_body', 'Request body is not valid JSON.');
+    throw new HttpError(400, 'invalid_request', 'Request body is not valid JSON.');
   }
 }
 
@@ -304,7 +304,7 @@ function clearSessionCookie(res: ServerResponse): void {
 
 function asRecord(body: unknown): Record<string, unknown> {
   if (typeof body !== 'object' || body === null) {
-    throw new HttpError(400, 'invalid_body', 'Request body must be a JSON object.');
+    throw new HttpError(400, 'invalid_request', 'Request body must be a JSON object.');
   }
   return body as Record<string, unknown>;
 }
@@ -312,20 +312,20 @@ function asRecord(body: unknown): Record<string, unknown> {
 /** Validates an optional `string | null` field, defaulting missing/null to null. */
 function stringOrNullField(value: unknown, field: string): string | null {
   if (value === undefined || value === null) return null;
-  if (typeof value !== 'string') throw new HttpError(400, 'invalid_body', `${field} must be a string or null.`);
+  if (typeof value !== 'string') throw new HttpError(400, 'invalid_request', `${field} must be a string or null.`);
   return value;
 }
 
 function validateDesignInput(body: unknown): DesignInput {
   const b = asRecord(body);
   if (typeof b.name !== 'string' || b.name.trim() === '') {
-    throw new HttpError(400, 'invalid_body', 'name must be a non-empty string.');
+    throw new HttpError(400, 'invalid_request', 'name must be a non-empty string.');
   }
   if (b.kind !== 'design' && b.kind !== 'template') {
-    throw new HttpError(400, 'invalid_body', 'kind must be "design" or "template".');
+    throw new HttpError(400, 'invalid_request', 'kind must be "design" or "template".');
   }
   if (b.orientation !== 'portrait' && b.orientation !== 'landscape') {
-    throw new HttpError(400, 'invalid_body', 'orientation must be "portrait" or "landscape".');
+    throw new HttpError(400, 'invalid_request', 'orientation must be "portrait" or "landscape".');
   }
   const category = stringOrNullField(b.category, 'category');
   const thumbnail = stringOrNullField(b.thumbnail, 'thumbnail');
@@ -343,14 +343,14 @@ function validateDesignInput(body: unknown): DesignInput {
 
 function validateVariables(value: unknown): DesignVariable[] {
   if (value === undefined) return [];
-  if (!Array.isArray(value)) throw new HttpError(400, 'invalid_body', 'variables must be an array.');
+  if (!Array.isArray(value)) throw new HttpError(400, 'invalid_request', 'variables must be an array.');
   return value.map((item, index) => {
     const v = asRecord(item);
     if (typeof v.key !== 'string' || typeof v.label !== 'string') {
-      throw new HttpError(400, 'invalid_body', `variables[${index}] must have a string key and label.`);
+      throw new HttpError(400, 'invalid_request', `variables[${index}] must have a string key and label.`);
     }
     if (v.defaultValue !== undefined && typeof v.defaultValue !== 'string') {
-      throw new HttpError(400, 'invalid_body', `variables[${index}].defaultValue must be a string.`);
+      throw new HttpError(400, 'invalid_request', `variables[${index}].defaultValue must be a string.`);
     }
     const variable: DesignVariable = { key: v.key, label: v.label };
     if (typeof v.defaultValue === 'string') variable.defaultValue = v.defaultValue;
@@ -361,19 +361,19 @@ function validateVariables(value: unknown): DesignVariable[] {
 function validatePrintRequest(body: unknown): PrintRequest {
   const b = asRecord(body);
   if (typeof b.name !== 'string' || b.name.trim() === '') {
-    throw new HttpError(400, 'invalid_body', 'name must be a non-empty string.');
+    throw new HttpError(400, 'invalid_request', 'name must be a non-empty string.');
   }
   if (!Array.isArray(b.images) || b.images.length === 0) {
-    throw new HttpError(400, 'invalid_body', 'images must be a non-empty array.');
+    throw new HttpError(400, 'invalid_request', 'images must be a non-empty array.');
   }
   if (b.images.length > 200) {
-    throw new HttpError(400, 'invalid_body', 'images must contain at most 200 entries.');
+    throw new HttpError(400, 'invalid_request', 'images must contain at most 200 entries.');
   }
   if (!b.images.every((img: unknown) => typeof img === 'string')) {
-    throw new HttpError(400, 'invalid_body', 'images must be an array of data URL strings.');
+    throw new HttpError(400, 'invalid_request', 'images must be an array of data URL strings.');
   }
   if (typeof b.copies !== 'number' || !Number.isInteger(b.copies) || b.copies < 1 || b.copies > 100) {
-    throw new HttpError(400, 'invalid_body', 'copies must be an integer between 1 and 100.');
+    throw new HttpError(400, 'invalid_request', 'copies must be an integer between 1 and 100.');
   }
   const designId = stringOrNullField(b.designId, 'designId');
   const printedBy = stringOrNullField(b.printedBy, 'printedBy');
@@ -388,8 +388,8 @@ function validatePrintRequest(body: unknown): PrintRequest {
 
 function validateStudioSettings(body: unknown): StudioSettings {
   const b = asRecord(body);
-  if (typeof b.studioName !== 'string' || b.studioName.trim() === '' || b.studioName.length > 60) {
-    throw new HttpError(400, 'invalid_body', 'studioName must be 1-60 characters.');
+  if (typeof b.studioName !== 'string' || b.studioName.trim() === '' || b.studioName.length > 80) {
+    throw new HttpError(400, 'invalid_request', 'studioName must be 1-80 characters.');
   }
   if (
     typeof b.historyRetentionDays !== 'number' ||
@@ -397,7 +397,7 @@ function validateStudioSettings(body: unknown): StudioSettings {
     b.historyRetentionDays < 1 ||
     b.historyRetentionDays > 3650
   ) {
-    throw new HttpError(400, 'invalid_body', 'historyRetentionDays must be an integer between 1 and 3650.');
+    throw new HttpError(400, 'invalid_request', 'historyRetentionDays must be an integer between 1 and 3650.');
   }
   if (
     typeof b.defaultCopies !== 'number' ||
@@ -405,7 +405,7 @@ function validateStudioSettings(body: unknown): StudioSettings {
     b.defaultCopies < 1 ||
     b.defaultCopies > 100
   ) {
-    throw new HttpError(400, 'invalid_body', 'defaultCopies must be an integer between 1 and 100.');
+    throw new HttpError(400, 'invalid_request', 'defaultCopies must be an integer between 1 and 100.');
   }
   return { studioName: b.studioName, historyRetentionDays: b.historyRetentionDays, defaultCopies: b.defaultCopies };
 }
@@ -415,7 +415,7 @@ function validatePrinterSettingsInput(body: unknown): PrinterSettingsInput {
   const result: PrinterSettingsInput = {};
   if (b.darkness !== undefined) {
     if (typeof b.darkness !== 'number' || !Number.isInteger(b.darkness) || b.darkness < 0 || b.darkness > 100) {
-      throw new HttpError(400, 'invalid_body', 'darkness must be an integer between 0 and 100.');
+      throw new HttpError(400, 'invalid_request', 'darkness must be an integer between 0 and 100.');
     }
     result.darkness = b.darkness;
   }
@@ -425,7 +425,7 @@ function validatePrinterSettingsInput(body: unknown): PrinterSettingsInput {
     } else if (typeof b.speed === 'number' && b.speed >= 2 && b.speed <= 6) {
       result.speed = b.speed;
     } else {
-      throw new HttpError(400, 'invalid_body', 'speed must be null or a number between 2 and 6.');
+      throw new HttpError(400, 'invalid_request', 'speed must be null or a number between 2 and 6.');
     }
   }
   return result;
@@ -447,13 +447,13 @@ function validateMockPrinterOverride(body: unknown): MockPrinterOverrideInput {
   const result: MockPrinterOverrideInput = {};
   if (b.state !== undefined) {
     if (!isPrinterState(b.state)) {
-      throw new HttpError(400, 'invalid_body', 'state must be one of idle, processing, stopped, unreachable.');
+      throw new HttpError(400, 'invalid_request', 'state must be one of idle, processing, stopped, unreachable.');
     }
     result.state = b.state;
   }
   if (b.reasons !== undefined) {
     if (!Array.isArray(b.reasons) || !b.reasons.every((r: unknown) => typeof r === 'string')) {
-      throw new HttpError(400, 'invalid_body', 'reasons must be an array of strings.');
+      throw new HttpError(400, 'invalid_request', 'reasons must be an array of strings.');
     }
     result.reasons = b.reasons as string[];
   }
@@ -463,7 +463,7 @@ function validateMockPrinterOverride(body: unknown): MockPrinterOverrideInput {
     } else if (typeof b.message === 'string') {
       result.message = b.message;
     } else {
-      throw new HttpError(400, 'invalid_body', 'message must be a string or null.');
+      throw new HttpError(400, 'invalid_request', 'message must be a string or null.');
     }
   }
   return result;
@@ -471,14 +471,14 @@ function validateMockPrinterOverride(body: unknown): MockPrinterOverrideInput {
 
 function extractPassword(body: unknown): string {
   const b = asRecord(body);
-  if (typeof b.password !== 'string') throw new HttpError(400, 'invalid_body', 'password must be a string.');
+  if (typeof b.password !== 'string') throw new HttpError(400, 'invalid_request', 'password must be a string.');
   return b.password;
 }
 
 function extractPasswordChange(body: unknown): { current: string; next: string } {
   const b = asRecord(body);
   if (typeof b.current !== 'string' || typeof b.next !== 'string') {
-    throw new HttpError(400, 'invalid_body', 'current and next must be strings.');
+    throw new HttpError(400, 'invalid_request', 'current and next must be strings.');
   }
   return { current: b.current, next: b.next };
 }
@@ -1103,7 +1103,9 @@ async function routeRequest(store: Store, req: Connect.IncomingMessage, res: Ser
       requireAdmin(store, req);
       const image = buildTestLabelPng();
       const result = enqueuePrint(store, { name: 'Test label', designId: null, printedBy: null, copies: 1, images: [image] }, at);
-      sendJson(res, 200, result);
+      // Like the real server, test prints are not recorded in history.
+      store.history.delete(result.historyId);
+      sendJson(res, 200, { historyId: '', jobIds: result.jobIds });
       return;
     }
 
@@ -1150,7 +1152,7 @@ async function routeRequest(store: Store, req: Connect.IncomingMessage, res: Ser
     if (method === 'POST' && pathname === '/api/admin/setup') {
       if (store.adminConfigured) throw new HttpError(409, 'already_configured', 'Admin password is already set.');
       const password = extractPassword(await readJsonBody(req));
-      if (password.length < 8) throw new HttpError(400, 'invalid_body', 'Password must be at least 8 characters.');
+      if (password.length < 8) throw new HttpError(400, 'invalid_request', 'Password must be at least 8 characters.');
       store.adminConfigured = true;
       store.adminPassword = password;
       setSessionCookie(res, createSession(store));
@@ -1160,7 +1162,7 @@ async function routeRequest(store: Store, req: Connect.IncomingMessage, res: Ser
     if (method === 'POST' && pathname === '/api/admin/login') {
       const password = extractPassword(await readJsonBody(req));
       if (!store.adminConfigured || password !== store.adminPassword) {
-        throw new HttpError(401, 'wrong_password', 'That password is not right.');
+        throw new HttpError(401, 'invalid_password', 'Wrong password');
       }
       setSessionCookie(res, createSession(store));
       sendJson(res, 200, { configured: true, loggedIn: true } satisfies AdminState);
@@ -1176,8 +1178,8 @@ async function routeRequest(store: Store, req: Connect.IncomingMessage, res: Ser
     if (method === 'POST' && pathname === '/api/admin/password') {
       requireAdmin(store, req);
       const { current, next } = extractPasswordChange(await readJsonBody(req));
-      if (current !== store.adminPassword) throw new HttpError(401, 'wrong_password', 'That password is not right.');
-      if (next.length < 8) throw new HttpError(400, 'invalid_body', 'New password must be at least 8 characters.');
+      if (current !== store.adminPassword) throw new HttpError(403, 'invalid_password', 'Current password is wrong');
+      if (next.length < 8) throw new HttpError(400, 'invalid_request', 'New password must be at least 8 characters.');
       store.adminPassword = next;
       sendNoContent(res, 204);
       return;
@@ -1201,7 +1203,7 @@ async function routeRequest(store: Store, req: Connect.IncomingMessage, res: Ser
     if (method === 'POST' && restartMatch) {
       requireAdmin(store, req);
       const name = restartMatch.name ?? '';
-      if (!isServiceName(name)) throw new HttpError(400, 'invalid_body', `Unknown service "${name}".`);
+      if (!isServiceName(name)) throw new HttpError(400, 'invalid_request', `Unknown service "${name}".`);
       store.serviceState[name] = { since: at.toISOString(), restarts: store.serviceState[name].restarts + 1 };
       sendNoContent(res, 202);
       return;
@@ -1217,7 +1219,7 @@ async function routeRequest(store: Store, req: Connect.IncomingMessage, res: Ser
       requireAdmin(store, req);
       const unit = url.searchParams.get('unit');
       if (!isLogUnit(unit)) {
-        throw new HttpError(400, 'invalid_body', 'unit must be one of lprint, eco-studio, eco-printer-health.');
+        throw new HttpError(400, 'invalid_request', 'unit must be one of lprint, eco-studio, eco-printer-health.');
       }
       const linesParam = url.searchParams.get('lines');
       const lines = clampInt(linesParam ? Number(linesParam) : 200, 1, 1000);
@@ -1238,7 +1240,7 @@ async function routeRequest(store: Store, req: Connect.IncomingMessage, res: Ser
 function parsePrinterStateParam(value: string | null): PrinterState | undefined {
   if (value === null) return undefined;
   if (!isPrinterState(value)) {
-    throw new HttpError(400, 'invalid_body', 'state must be one of idle, processing, stopped, unreachable.');
+    throw new HttpError(400, 'invalid_request', 'state must be one of idle, processing, stopped, unreachable.');
   }
   return value;
 }
