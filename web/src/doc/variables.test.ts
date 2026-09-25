@@ -29,8 +29,9 @@ describe('substitute', () => {
     expect(substitute('{{time:HH:mm:ss}}', ctx)).toBe('15:05:09');
   });
 
-  it('is case-insensitive for built-ins', () => {
-    expect(substitute('{{DATE:YY}} {{Counter}}', ctx)).toBe('26 007');
+  it('treats capitalized names as custom fields, not built-ins', () => {
+    expect(substitute('{{date:YY}} {{Date}} {{Counter}}', { ...ctx, values: { Date: 'Friday', Counter: 'C' } })).toBe('26 Friday C');
+    expect(extractFieldKeys(['{{Date}} {{Time}} {{date}}'])).toEqual(['Date', 'Time']);
   });
 
   it('leaves text without variables untouched', () => {

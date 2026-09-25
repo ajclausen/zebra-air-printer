@@ -17,7 +17,7 @@ const outDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../sc
 fs.mkdirSync(outDir, { recursive: true });
 const shot = (page, name) => page.screenshot({ path: path.join(outDir, `${name}.png`) });
 
-const CSV = 'Name,Department,Asset\nAda Lovelace,Engineering,ECO-1001\nGrace Hopper,Operations,ECO-1002\nKatherine Johnson,Research,ECO-1003\nAlan Turing,Engineering,ECO-1004\n';
+const CSV = 'Recipient,Street,City,Reference\nAda Lovelace,12 Analytical Row,"London, KY 40741",PO-1001\nGrace Hopper,7 Compiler Court,"Arlington, VA 22201",PO-1002\nKatherine Johnson,3 Orbit Lane,"Hampton, VA 23666",PO-1003\nAlan Turing,1 Bletchley Park,"Wilmslow, WA 98001",PO-1004\n';
 
 const browser = await chromium.launch();
 try {
@@ -65,6 +65,12 @@ try {
   await page.locator('input[type=file][accept*=csv]').setInputFiles({ name: 'badges.csv', mimeType: 'text/csv', buffer: Buffer.from(CSV) });
   await page.waitForTimeout(400);
   await shot(page, 'batch-csv-dialog');
+  await page.getByRole('button', { name: /Preview all 4/ }).click();
+  await page.getByTestId('preview-image').nth(3).waitFor();
+  await page.waitForTimeout(300);
+  await shot(page, 'preview-batch');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
   await page.getByRole('radio', { name: /Numbered/ }).click();
   await page.waitForTimeout(200);
   await shot(page, 'batch-sequence-dialog');

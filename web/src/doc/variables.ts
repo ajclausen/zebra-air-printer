@@ -15,13 +15,14 @@ const VARIABLE_PATTERN = /\{\{\s*([^{}]*?)\s*\}\}/g;
 
 type BuiltIn = { kind: 'date'; offsetDays: number; format: string | null } | { kind: 'time'; format: string | null } | { kind: 'counter' };
 
-const BUILT_IN_PATTERN = /^(date|time|counter)\s*(?:([+-])\s*(\d+))?\s*(?::(.*))?$/i;
+/** Built-ins are lowercase only, so custom fields may be called "Date", "Time", or "Counter". */
+const BUILT_IN_PATTERN = /^(date|time|counter)\s*(?:([+-])\s*(\d+))?\s*(?::(.*))?$/;
 
 /** Parse a variable body (the text between the braces) as a built-in, or null for a custom field. */
 export function parseBuiltIn(body: string): BuiltIn | null {
   const match = BUILT_IN_PATTERN.exec(body.trim());
   if (!match) return null;
-  const name = match[1]!.toLowerCase();
+  const name = match[1]!;
   const format = match[4]?.trim() || null;
   if (name === 'date') {
     const offset = match[3] ? Number(match[3]) * (match[2] === '-' ? -1 : 1) : 0;

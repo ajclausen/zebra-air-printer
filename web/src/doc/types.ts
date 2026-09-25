@@ -44,7 +44,7 @@ export interface TextElement extends ElementBase {
   type: 'text';
   text: string;
   font: FontId;
-  /** Font size in dots. When autoFit is on this is the largest size allowed. */
+  /** Font size in dots. Ignored when autoFit is on (the box sets the size). */
   fontSize: number;
   fontWeight: number;
   italic: boolean;
