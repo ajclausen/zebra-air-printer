@@ -39,6 +39,7 @@ NODE_ENV=production ECO_DATA_DIR=/tmp/eco ECO_PRINTER_URI=fake \
 | `ECO_TLS_DIR` | `$ECO_DATA_DIR/tls` | `$ECO_DATA_DIR/tls` |
 | `ECO_STATIC_DIR` | unset (API only) | unset |
 | `ECO_HEALTH_DIR` | `/run/eco-printer-health` | same |
+| `ECO_CAPTURE_DIR` | `/var/spool/lprint-capture` | `$ECO_DATA_DIR/fake-capture` |
 | `ECO_ALLOWED_ORIGINS` | none | `http://localhost:5173`, `http://127.0.0.1:5173` |
 | `ECO_PRINTER_SPEED_RESET` | `zero` | same |
 | `ECO_HOST` | `::` (falls back to `0.0.0.0` without IPv6) | same |
@@ -68,3 +69,9 @@ Production means `NODE_ENV=production`. If `server.key` and `server.crt` exist i
 - Printer status is cached for 2 seconds, and the cache is cleared after printing, canceling, or changing settings.
 - Studio jobs use `requesting-user-name=label-studio`; the queue marks them `studio` and everything else `airprint`.
 - Test prints go through the ZPL path and are not recorded in history (`historyId` is `""`).
+- History covers every LPrint job. Every 10 seconds (and at startup) the server asks LPrint for completed and not-completed jobs (`src/services/history-ingest.ts`):
+  - Jobs not from `label-studio` become `airprint` entries (name, sender, host, state, pages printed). An LPrint job is identified by id plus creation time, so a reused id becomes a new entry. Deleted entries leave a tombstone so a job still listed by LPrint is not added again.
+  - Every entry's `state` is the worst state across its jobs (aborted > canceled > processing > pending > unknown > completed).
+  - Once a listed job is final, its page captures (`job-<id>-page-<n>.pbm`, written by the patched LPrint driver) become the entry's PNGs for AirPrint entries, converted like studio prints (8-bit gray, pHYs 7993, padded or cropped to 812x1218 if needed). Captures of studio/import jobs are just deleted. Captures older than 24 hours, and captures of unknown jobs after an hour, are deleted too. Raw ZPL jobs have no captures, so their `imageCount` stays 0.
+  - The fake printer lists its jobs and writes captures too, and starts with one completed AirPrint job, so this all works in development.
+- Reprinting an AirPrint entry records a new `studio` entry named "<name> (reprint)". Entries without images return 410 `images_missing`.

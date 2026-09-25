@@ -10,12 +10,22 @@ import {
   PrinterUnreachableError,
   STUDIO_USER_NAME,
   type Printer,
+  type PrinterJob,
   type PrinterSettings,
   type PrintOptions,
 } from './printer.js';
-import { buildStatus, inchesToIppSpeed, PRINTER_STATUS_ATTRIBUTES, QUEUE_JOB_ATTRIBUTES, unreachableStatus } from './status.js';
+import {
+  buildStatus,
+  HISTORY_JOB_ATTRIBUTES,
+  inchesToIppSpeed,
+  mapPrinterJob,
+  PRINTER_STATUS_ATTRIBUTES,
+  QUEUE_JOB_ATTRIBUTES,
+  unreachableStatus,
+} from './status.js';
 
 const STATUS_TIMEOUT_MS = 2000;
+const LIST_TIMEOUT_MS = 5000;
 
 /** Job attributes for a studio PNG label: exactly 1:1 on 4x6 stock, no scaling, 1-bit. */
 export function pngJobAttributes(copies: number): IppAttribute[] {
@@ -97,7 +107,7 @@ export class IppPrinter implements Printer {
     try {
       const [printerResponse, jobs] = await Promise.all([
         this.client.getPrinterAttributes(PRINTER_STATUS_ATTRIBUTES, STATUS_TIMEOUT_MS),
-        this.client.getJobs(QUEUE_JOB_ATTRIBUTES, STATUS_TIMEOUT_MS).catch((err: unknown) => {
+        this.client.getJobs(QUEUE_JOB_ATTRIBUTES, { userName: STUDIO_USER_NAME, timeoutMs: STATUS_TIMEOUT_MS }).catch((err: unknown) => {
           // A failed Get-Jobs should not hide the printer state; show an empty queue instead,
           // unless the service is down altogether.
           if (err instanceof IppUnreachableError) throw err;
@@ -114,6 +124,28 @@ export class IppPrinter implements Printer {
     } catch (err) {
       if (!isKnownIppFailure(err)) this.options.onUnexpectedError?.(err);
       return unreachableStatus(this.now(), statusFailureMessage(err));
+    }
+  }
+
+  /** Completed and not-completed jobs from LPrint (which lists every user's jobs to local clients). */
+  async listJobs(): Promise<PrinterJob[] | null> {
+    try {
+      const responses = await Promise.all(
+        (['not-completed', 'completed'] as const).map((which) =>
+          this.client.getJobs(HISTORY_JOB_ATTRIBUTES, { which, userName: STUDIO_USER_NAME, timeoutMs: LIST_TIMEOUT_MS }),
+        ),
+      );
+      const jobs = new Map<number, PrinterJob>();
+      for (const response of responses) {
+        for (const group of groupsOf(response, DelimiterTag.jobAttributes)) {
+          const job = mapPrinterJob(group);
+          if (job) jobs.set(job.id, job);
+        }
+      }
+      return [...jobs.values()].sort((a, b) => a.id - b.id);
+    } catch (err) {
+      if (!isKnownIppFailure(err)) this.options.onUnexpectedError?.(err);
+      return null;
     }
   }
 

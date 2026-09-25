@@ -64,6 +64,7 @@ export const printBody = {
     copies: { type: 'integer', minimum: 1, maximum: 100 },
     designId: { type: ['string', 'null'], maxLength: 64 },
     printedBy: nullableString(100),
+    source: { type: 'string', enum: ['studio', 'import'] },
   },
 } as const;
 
@@ -82,13 +83,14 @@ export const historyListQuery = {
   properties: {
     limit: { type: 'integer', minimum: 1, maximum: 500, default: 50 },
     before: { type: 'string', maxLength: 40 },
+    source: { type: 'string', enum: ['studio', 'import', 'airprint'] },
   },
 } as const;
 
 export const historyImageParams = {
   type: 'object',
   required: ['id', 'index'],
-  properties: { id: { type: 'string', pattern: ID_PATTERN }, index: { type: 'integer', minimum: 0, maximum: 199 } },
+  properties: { id: { type: 'string', pattern: ID_PATTERN }, index: { type: 'integer', minimum: 0, maximum: 9999 } },
 } as const;
 
 export const jobParams = {

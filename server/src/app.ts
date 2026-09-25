@@ -84,7 +84,11 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
     trustProxy: false,
     ...options.fastify,
   });
-  const ctx = createContext(options);
+  const ctx = createContext(options, {
+    info: (obj, msg) => app.log.info(obj, msg),
+    warn: (obj, msg) => app.log.warn(obj, msg),
+    error: (obj, msg) => app.log.error(obj, msg),
+  });
 
   await app.register(fastifyCookie);
   // JSON only: text/plain is a "simple" CORS content type a cross-site form could send.

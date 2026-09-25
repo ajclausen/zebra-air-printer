@@ -3,7 +3,7 @@
 import type { PrinterState, PrinterStatus, QueueJob } from '@eco/shared';
 import { allValues, firstValue, type IppCollection, type IppGroup } from '../ipp/codec.js';
 import { JobStateEnum, PrinterStateEnum } from '../ipp/constants.js';
-import { STUDIO_USER_NAME } from './printer.js';
+import { STUDIO_USER_NAME, type PrinterJob } from './printer.js';
 
 /** IPP print-speed-default is in hundredths of mm/sec; 1 in/s = 25.4 mm/s = 2540. */
 const IPP_SPEED_PER_INCH = 2540;
@@ -86,7 +86,7 @@ export function statusMessage(state: PrinterState, rawReasons: string[]): string
   return null;
 }
 
-function toIso(value: unknown): string | null {
+export function toIso(value: unknown): string | null {
   if (value instanceof Date) return value.toISOString();
   // time-at-creation is only usable when it is an epoch (PAPPL may report uptime-relative values).
   if (typeof value === 'number' && value > 1_000_000_000) return new Date(value * 1000).toISOString();
@@ -131,6 +131,35 @@ export const PRINTER_STATUS_ATTRIBUTES = [
   'media-ready',
   'media-col-ready',
 ];
+
+/** Attributes for history ingestion (Get-Jobs, completed and not-completed). */
+export const HISTORY_JOB_ATTRIBUTES = [
+  'job-id',
+  'job-name',
+  'job-state',
+  'job-originating-user-name',
+  'job-originating-host-name',
+  'date-time-at-creation',
+  'time-at-creation',
+  'job-impressions-completed',
+];
+
+export function mapPrinterJob(group: IppGroup): PrinterJob | null {
+  const job = mapJob(group);
+  if (!job) return null;
+  const name = firstValue(group, 'job-name');
+  const host = firstValue(group, 'job-originating-host-name');
+  const impressions = firstValue(group, 'job-impressions-completed');
+  return {
+    id: job.id,
+    name: typeof name === 'string' && name !== '' ? name : null,
+    user: job.user,
+    host: typeof host === 'string' && host !== '' ? host : null,
+    state: job.state,
+    createdAt: job.createdAt,
+    impressionsCompleted: typeof impressions === 'number' ? impressions : null,
+  };
+}
 
 export const QUEUE_JOB_ATTRIBUTES = [
   'job-id',

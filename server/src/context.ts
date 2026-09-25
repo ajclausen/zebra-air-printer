@@ -8,7 +8,9 @@ import { SettingsRepository } from './db/settings.js';
 import type { Printer } from './printer/printer.js';
 import { StatusCache } from './printer/status-cache.js';
 import { PrintService } from './services/print-service.js';
+import { HistoryIngestService, type IngestLogger } from './services/history-ingest.js';
 import { RetentionService } from './services/retention.js';
+import { CaptureStore } from './storage/capture-store.js';
 import { PrintStore } from './storage/print-store.js';
 import type { CommandRunner, TextReader } from './system/exec.js';
 import { SystemControl } from './system/system-control.js';
@@ -21,6 +23,8 @@ export interface ContextOptions {
   dataDir: string;
   tlsDir: string;
   healthDir: string;
+  /** Page captures from the patched LPrint driver; defaults to <dataDir>/fake-capture. */
+  captureDir?: string;
   staticDir: string | null;
   allowedOrigins: string[];
   version: string;
@@ -47,11 +51,14 @@ export interface AppContext {
   store: PrintStore;
   prints: PrintService;
   retention: RetentionService;
+  ingest: HistoryIngestService;
   systemInfo: SystemInfoService;
   systemControl: SystemControl;
 }
 
-export function createContext(options: ContextOptions): AppContext {
+const silentLogger: IngestLogger = { info() {}, warn() {}, error() {} };
+
+export function createContext(options: ContextOptions, log: IngestLogger = silentLogger): AppContext {
   const now = options.now ?? (() => new Date());
   const designs = new DesignRepository(options.db, now);
   const history = new HistoryRepository(options.db);
@@ -71,6 +78,14 @@ export function createContext(options: ContextOptions): AppContext {
     store,
     prints: new PrintService({ printer: options.printer, status, designs, history, store, now }),
     retention: new RetentionService(history, settings, store, now),
+    ingest: new HistoryIngestService({
+      printer: options.printer,
+      history,
+      store,
+      captures: new CaptureStore(options.captureDir ?? path.join(options.dataDir, 'fake-capture')),
+      log,
+      now,
+    }),
     systemInfo: new SystemInfoService({
       run: options.run,
       readText: options.readText,

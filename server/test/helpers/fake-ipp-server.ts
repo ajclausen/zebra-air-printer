@@ -10,8 +10,10 @@ export interface FakeIppServer {
   requests: IppMessage[];
   /** Printer attributes returned by Get-Printer-Attributes. */
   printerAttributes: IppAttribute[];
-  /** Job groups returned by Get-Jobs. */
+  /** Job groups returned by Get-Jobs which-jobs=not-completed (the default). */
   jobs: IppAttribute[][];
+  /** Job groups returned by Get-Jobs which-jobs=completed. */
+  completedJobs: IppAttribute[][];
   /** Status code for the next Print-Job responses (default successful-ok). */
   printStatus: number;
   /** Fail Print-Job after this many successful jobs (for partial-failure tests). */
@@ -57,6 +59,7 @@ export async function startFakeIppServer(): Promise<FakeIppServer> {
       attr.keyword('media-ready', 'na_index-4x6_4x6in'),
     ],
     jobs: [],
+    completedJobs: [],
     printStatus: 0,
     failPrintAfter: null,
     rawResponse: null,
@@ -91,13 +94,16 @@ export async function startFakeIppServer(): Promise<FakeIppServer> {
         case Operation.getPrinterAttributes:
           body = response(request, 0, [{ tag: DelimiterTag.printerAttributes, attributes: state.printerAttributes }]);
           break;
-        case Operation.getJobs:
+        case Operation.getJobs: {
+          const which = request.groups[0]?.attributes.find((a) => a.name === 'which-jobs')?.values[0]?.data;
+          const list = which === 'completed' ? state.completedJobs : state.jobs;
           body = response(
             request,
             0,
-            state.jobs.map((attributes) => ({ tag: DelimiterTag.jobAttributes, attributes })),
+            list.map((attributes) => ({ tag: DelimiterTag.jobAttributes, attributes })),
           );
           break;
+        }
         case Operation.cancelJob: {
           const id = request.groups[0]?.attributes.find((a) => a.name === 'job-id')?.values[0]?.data;
           body = response(request, id === 404 ? 0x0406 : 0);

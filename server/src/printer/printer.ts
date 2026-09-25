@@ -1,4 +1,4 @@
-import type { PrinterStatus } from '@eco/shared';
+import type { PrinterStatus, QueueJob } from '@eco/shared';
 
 /** requesting-user-name for every job Label Studio submits; identifies studio jobs in the queue. */
 export const STUDIO_USER_NAME = 'label-studio';
@@ -18,6 +18,21 @@ export interface PrinterSettings {
   speed?: number | null;
 }
 
+/** A job in the printer's job list (completed and not completed), for history ingestion. */
+export interface PrinterJob {
+  id: number;
+  name: string | null;
+  /** job-originating-user-name */
+  user: string | null;
+  /** job-originating-host-name */
+  host: string | null;
+  state: QueueJob['state'];
+  /** ISO time from date-time-at-creation (or an epoch time-at-creation), null if unknown. */
+  createdAt: string | null;
+  /** job-impressions-completed */
+  impressionsCompleted: number | null;
+}
+
 /** Everything the server needs from the label printer. Implemented by LPrint over IPP and a fake. */
 export interface Printer {
   /** Never throws: an unreachable printer is reported as state "unreachable". */
@@ -28,6 +43,8 @@ export interface Printer {
   printZpl(zpl: string, options: PrintOptions): Promise<number>;
   cancelJob(jobId: number): Promise<void>;
   configure(settings: PrinterSettings): Promise<void>;
+  /** Every job the printer still lists, or null when the list is unavailable (never throws). */
+  listJobs(): Promise<PrinterJob[] | null>;
 }
 
 /** The printer service could not be reached. */

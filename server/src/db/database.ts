@@ -56,6 +56,40 @@ export const MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX sessions_expires_at ON sessions (expires_at);
   `,
+
+  // 2: history covers every LPrint job (studio, import, AirPrint), with job state and
+  // stored-image counts. history_jobs maps LPrint jobs to entries for ingestion.
+  `
+  ALTER TABLE history ADD COLUMN source TEXT NOT NULL DEFAULT 'studio'
+    CHECK (source IN ('studio', 'import', 'airprint'));
+  ALTER TABLE history ADD COLUMN state TEXT NOT NULL DEFAULT 'unknown';
+  ALTER TABLE history ADD COLUMN host TEXT;
+  ALTER TABLE history ADD COLUMN image_count INTEGER NOT NULL DEFAULT 0;
+  -- Studio prints always stored one image per label.
+  UPDATE history SET image_count = label_count;
+  CREATE INDEX history_source_created_at ON history (source, created_at DESC);
+
+  -- One row per LPrint job. job_created is LPrint's creation time ('' = not known yet);
+  -- seen = 1 once the ingestion poller has matched the row to a job in LPrint's list.
+  -- history_id becomes NULL when the entry is deleted, leaving a tombstone so the
+  -- job is not ingested again while LPrint still lists it.
+  CREATE TABLE history_jobs (
+    job_id INTEGER NOT NULL,
+    job_created TEXT NOT NULL DEFAULT '',
+    history_id TEXT REFERENCES history (id) ON DELETE SET NULL,
+    state TEXT NOT NULL DEFAULT 'unknown',
+    seen INTEGER NOT NULL DEFAULT 0,
+    last_seen_at TEXT
+  );
+  -- Dedupes ingestion: an LPrint job (id + creation time) maps to at most one entry.
+  -- Keyed on creation time too, because LPrint can reuse job ids.
+  CREATE UNIQUE INDEX history_jobs_job ON history_jobs (job_id, job_created) WHERE seen = 1;
+  CREATE INDEX history_jobs_job_id ON history_jobs (job_id);
+  CREATE INDEX history_jobs_history_id ON history_jobs (history_id);
+
+  INSERT INTO history_jobs (job_id, history_id, state)
+    SELECT CAST(j.value AS INTEGER), h.id, 'unknown' FROM history h, json_each(h.job_ids) j;
+  `,
 ];
 
 export function schemaVersion(db: DatabaseSync): number {

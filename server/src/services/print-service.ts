@@ -68,6 +68,7 @@ export class PrintService {
       const designId = request.designId && this.deps.designs.exists(request.designId) ? request.designId : null;
       return this.submit({
         name: request.name,
+        source: request.source ?? 'studio',
         designId,
         printedBy: request.printedBy?.trim() || null,
         copies: request.copies,
@@ -76,18 +77,33 @@ export class PrintService {
     });
   }
 
-  /** Re-sends the stored images of a history entry as a new history entry. */
+  /**
+   * Re-sends the stored images of a history entry as a new history entry. Studio and
+   * import entries keep their source; an AirPrint entry is reprinted from the Studio, so
+   * the new entry is source 'studio', named "<name> (reprint)", with its own printedBy.
+   */
   reprint(historyId: string, options: ReprintOptions = {}): Promise<PrintResponse> {
     return this.track(async () => {
       const entry = this.deps.history.get(historyId);
       if (!entry) throw notFound('History entry');
-      const images = await this.deps.store.readAll(historyId, entry.labelCount);
-      if (!images) throw new HttpError(410, 'images_missing', 'The stored label images for this print are gone');
+      const images = entry.imageCount > 0 ? await this.deps.store.readAll(historyId, entry.imageCount) : null;
+      if (!images) {
+        throw new HttpError(
+          410,
+          'images_missing',
+          entry.imageCount === 0
+            ? 'No label images were captured for this print, so it cannot be reprinted'
+            : 'The stored label images for this print are gone',
+        );
+      }
       const designId = entry.designId && this.deps.designs.exists(entry.designId) ? entry.designId : null;
+      const fromAirPrint = entry.source === 'airprint';
+      const originalPrintedBy = fromAirPrint ? null : entry.printedBy;
       return this.submit({
-        name: entry.name,
+        name: fromAirPrint ? `${entry.name} (reprint)` : entry.name,
+        source: entry.source === 'import' ? 'import' : 'studio',
         designId,
-        printedBy: options.printedBy === undefined ? entry.printedBy : options.printedBy?.trim() || null,
+        printedBy: options.printedBy === undefined ? originalPrintedBy : options.printedBy?.trim() || null,
         copies: options.copies ?? entry.copies,
         images,
       });
@@ -147,6 +163,7 @@ export class PrintService {
 
   private async submit(job: {
     name: string;
+    source: 'studio' | 'import';
     designId: string | null;
     printedBy: string | null;
     copies: number;
@@ -159,10 +176,14 @@ export class PrintService {
     history.insert({
       id: historyId,
       name: job.name,
+      source: job.source,
+      state: 'pending',
       designId: job.designId,
       printedBy: job.printedBy,
+      host: null,
       labelCount: job.images.length,
       copies: job.copies,
+      imageCount: job.images.length,
       createdAt: at,
     });
 
@@ -171,8 +192,10 @@ export class PrintService {
       // Sequential, so labels come out in order and LPrint is never flooded.
       for (const [index, image] of job.images.entries()) {
         const name = jobName(job.name, index, job.images.length);
-        jobIds.push(await printer.printPng(image, { jobName: name, copies: job.copies }));
-        history.setJobIds(historyId, jobIds);
+        const jobId = await printer.printPng(image, { jobName: name, copies: job.copies });
+        jobIds.push(jobId);
+        // The ingestion poller matches these against LPrint's job list to track state.
+        history.addSubmittedJob(historyId, jobId);
       }
     } catch (err) {
       if (jobIds.length === 0) {

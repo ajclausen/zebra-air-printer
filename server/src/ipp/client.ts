@@ -162,14 +162,18 @@ export class IppClient {
     });
   }
 
-  getJobs(requested: string[], timeoutMs?: number): Promise<IppMessage> {
+  getJobs(
+    requested: string[],
+    options: { which?: 'completed' | 'not-completed'; userName: string; timeoutMs?: number },
+  ): Promise<IppMessage> {
     return this.send({
       operation: Operation.getJobs,
       operationAttributes: [
-        attr.keyword('which-jobs', 'not-completed'),
+        attr.name('requesting-user-name', options.userName),
+        attr.keyword('which-jobs', options.which ?? 'not-completed'),
         attr.keyword('requested-attributes', ...requested),
       ],
-      timeoutMs,
+      timeoutMs: options.timeoutMs,
     });
   }
 

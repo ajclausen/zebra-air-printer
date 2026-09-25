@@ -27,7 +27,7 @@ describe('migrations', () => {
     const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as Array<{
       name: string;
     }>).map((r) => r.name);
-    expect(tables).toEqual(['admin', 'designs', 'history', 'sessions', 'settings']);
+    expect(tables).toEqual(['admin', 'designs', 'history', 'history_jobs', 'sessions', 'settings']);
     db.close();
   });
 
@@ -57,6 +57,55 @@ describe('migrations', () => {
     expect(() => migrate(db, ['CREATE TABLE ok (x)', 'CREATE TABLE bad (x); SELECT * FROM missing'])).toThrow();
     expect(schemaVersion(db)).toBe(1);
     expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'bad'").get()).toBeUndefined();
+  });
+
+  it('upgrades a version 1 database and backfills history', () => {
+    const db = new DatabaseSync(':memory:');
+    migrate(db, MIGRATIONS.slice(0, 1));
+    db.prepare(
+      `INSERT INTO history (id, name, design_id, printed_by, label_count, copies, job_ids, created_at)
+       VALUES ('h1', 'Old print', NULL, 'Andrew', 3, 2, '[5,6,7]', '2026-09-01T00:00:00.000Z'),
+              ('h2', 'Partial', NULL, NULL, 2, 1, '[]', '2026-09-02T00:00:00.000Z')`,
+    ).run();
+
+    migrate(db);
+    expect(schemaVersion(db)).toBe(2);
+    const entries = new HistoryRepository(db).list(10);
+    expect(entries.map((e) => [e.id, e.source, e.state, e.imageCount, e.host, e.jobIds, e.previewUrl])).toEqual([
+      ['h2', 'studio', 'unknown', 2, null, [], '/api/history/h2/images/0.png'],
+      ['h1', 'studio', 'unknown', 3, null, [5, 6, 7], '/api/history/h1/images/0.png'],
+    ]);
+    const jobs = db.prepare('SELECT job_id, job_created, history_id, state, seen FROM history_jobs ORDER BY job_id').all();
+    expect(jobs.map((j) => ({ ...j }))).toEqual([5, 6, 7].map((id) => ({
+      job_id: id,
+      job_created: '',
+      history_id: 'h1',
+      state: 'unknown',
+      seen: 0,
+    })));
+  });
+
+  it('dedupes matched LPrint jobs by id and creation time', () => {
+    const db = openDatabase(':memory:');
+    const history = new HistoryRepository(db);
+    const entry = (id: string) => ({
+      id,
+      name: id,
+      source: 'airprint' as const,
+      state: 'completed' as const,
+      designId: null,
+      printedBy: null,
+      host: null,
+      labelCount: 1,
+      copies: 1,
+      imageCount: 0,
+      createdAt: new Date('2026-09-25T00:00:00Z'),
+    });
+    history.insertIngested(entry('a'), 5, '2026-09-25T00:00:00.000Z', new Date());
+    expect(() => history.insertIngested(entry('b'), 5, '2026-09-25T00:00:00.000Z', new Date())).toThrow();
+    expect(history.get('b')).toBeNull(); // the transaction rolled back
+    history.insertIngested(entry('c'), 5, '2026-09-26T00:00:00.000Z', new Date());
+    expect(history.jobsById(5).map((j) => j.historyId)).toEqual(['c', 'a']);
   });
 
   it('refuses to open a database from a newer build', () => {
@@ -175,16 +224,21 @@ describe('HistoryRepository', () => {
       history.insert({
         id: `h${i}`,
         name: `Job ${i}`,
+        source: 'studio',
+        state: 'pending',
         designId: null,
         printedBy: null,
+        host: null,
         labelCount: 1,
         copies: 1,
+        imageCount: 1,
         createdAt: new Date(Date.UTC(2026, 8, 20 + i)),
       });
     }
     expect(history.list(2).map((h) => h.id)).toEqual(['h4', 'h3']);
     expect(history.list(2, new Date(Date.UTC(2026, 8, 23))).map((h) => h.id)).toEqual(['h2', 'h1']);
-    history.setJobIds('h0', [5, 6]);
+    history.addSubmittedJob('h0', 5);
+    history.addSubmittedJob('h0', 6);
     expect(history.get('h0')!.jobIds).toEqual([5, 6]);
   });
 });
@@ -202,10 +256,14 @@ describe('RetentionService', () => {
       history.insert({
         id,
         name: id,
+        source: 'studio',
+        state: 'pending',
         designId: null,
         printedBy: null,
+        host: null,
         labelCount: 1,
         copies: 1,
+        imageCount: 1,
         createdAt: new Date(now.getTime() - ageDays * DAY),
       });
       await store.write(id, [Buffer.from('png')]);

@@ -25,6 +25,8 @@ export interface TestAppOptions {
   staticDir?: string | null;
   tlsDir?: string;
   allowedOrigins?: string[];
+  /** Build the printer once the data dir exists (e.g. a FakePrinter writing captures there). */
+  makePrinter?: (dataDir: string, clock: { now: Date }) => Printer;
 }
 
 export async function createTestApp(options: TestAppOptions = {}): Promise<TestApp> {
@@ -43,6 +45,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   };
   const printer =
     options.printer ??
+    options.makePrinter?.(dataDir, clock) ??
     new FakePrinter({ outputDir: path.join(dataDir, 'fake-printer'), logger: { info() {} }, jobDurationMs: 10 });
 
   const { app, ctx } = await buildApp({
@@ -51,6 +54,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     dataDir,
     tlsDir: options.tlsDir ?? path.join(dataDir, 'tls'),
     healthDir: path.join(dataDir, 'health'),
+    captureDir: path.join(dataDir, 'captures'),
     staticDir: options.staticDir ?? null,
     allowedOrigins: options.allowedOrigins ?? [],
     version: '9.9.9-test',

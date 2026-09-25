@@ -15,6 +15,8 @@ export interface Config {
   /** Built web app, or null to serve the API only. */
   staticDir: string | null;
   healthDir: string;
+  /** Page bitmaps written by the patched LPrint driver (ECO_CAPTURE_DIR). */
+  captureDir: string;
   /** Extra origins allowed to make state-changing requests (e.g. a Vite dev server). */
   allowedOrigins: string[];
   /** Simulated printer-state-reasons for the fake printer (ECO_FAKE_PRINTER_REASONS, comma separated). */
@@ -63,6 +65,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     tlsDir: path.resolve(env.ECO_TLS_DIR || path.join(dataDir, 'tls')),
     staticDir: env.ECO_STATIC_DIR ? path.resolve(env.ECO_STATIC_DIR) : null,
     healthDir: env.ECO_HEALTH_DIR || '/run/eco-printer-health',
+    captureDir: path.resolve(
+      env.ECO_CAPTURE_DIR || (production ? '/var/spool/lprint-capture' : path.join(dataDir, 'fake-capture')),
+    ),
     allowedOrigins: list(env.ECO_ALLOWED_ORIGINS).concat(
       production ? [] : ['http://localhost:5173', 'http://127.0.0.1:5173'],
     ),

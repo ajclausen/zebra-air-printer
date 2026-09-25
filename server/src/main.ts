@@ -17,6 +17,7 @@ import { readText, runCommand } from './system/exec.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PRINT_DRAIN_MS = 15_000;
+const INGEST_INTERVAL_MS = 10_000;
 
 async function listen(server: http.Server, port: number, host: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
@@ -40,6 +41,7 @@ async function main(): Promise<void> {
     config.printerUri === 'fake'
       ? new FakePrinter({
           outputDir: path.join(config.dataDir, 'fake-printer'),
+          captureDir: config.captureDir,
           reasons: config.fakePrinterReasons,
           logger: { info: (obj, msg) => log?.info(obj, msg) },
         })
@@ -54,6 +56,7 @@ async function main(): Promise<void> {
     dataDir: config.dataDir,
     tlsDir: config.tlsDir,
     healthDir: config.healthDir,
+    captureDir: config.captureDir,
     staticDir: config.staticDir,
     allowedOrigins: config.allowedOrigins,
     version,
@@ -104,6 +107,13 @@ async function main(): Promise<void> {
   const housekeepingTimer = setInterval(() => void housekeeping(), DAY_MS);
   housekeepingTimer.unref();
 
+  // Pull LPrint's job list into history (AirPrint jobs, job states, captured pages).
+  const ingest = () =>
+    ctx.ingest.poll().catch((err: unknown) => app.log.error({ err }, 'history ingestion failed'));
+  void ingest();
+  const ingestTimer = setInterval(() => void ingest(), INGEST_INTERVAL_MS);
+  ingestTimer.unref();
+
   process.on('SIGHUP', () => {
     if (!tls) return;
     try {
@@ -126,6 +136,7 @@ async function main(): Promise<void> {
     const force = setTimeout(() => process.exit(1), 25_000);
     force.unref();
     clearInterval(housekeepingTimer);
+    clearInterval(ingestTimer);
     try {
       redirectServer?.closeAllConnections();
       // Stop accepting connections; idle keep-alive sockets close, active requests finish.

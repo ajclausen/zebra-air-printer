@@ -1,4 +1,4 @@
-import type { PrintRequest, ReprintRequest } from '@eco/shared';
+import type { HistorySource, PrintRequest, ReprintRequest } from '@eco/shared';
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context.js';
 import { HttpError, notFound } from '../errors.js';
@@ -17,7 +17,7 @@ export function printingRoutes(app: FastifyInstance, ctx: AppContext): void {
     async (request) => prints.print(request.body),
   );
 
-  app.get<{ Querystring: { limit: number; before?: string } }>(
+  app.get<{ Querystring: { limit: number; before?: string; source?: HistorySource } }>(
     '/api/history',
     { schema: { querystring: historyListQuery } },
     async (request) => {
@@ -28,7 +28,7 @@ export function printingRoutes(app: FastifyInstance, ctx: AppContext): void {
           throw new HttpError(400, 'invalid_request', 'querystring/before must be an ISO 8601 date-time');
         }
       }
-      return history.list(request.query.limit, before);
+      return history.list(request.query.limit, before, request.query.source);
     },
   );
 
@@ -37,7 +37,7 @@ export function printingRoutes(app: FastifyInstance, ctx: AppContext): void {
     { schema: { params: historyImageParams } },
     async (request, reply) => {
       const entry = history.get(request.params.id);
-      if (!entry || request.params.index >= entry.labelCount) throw notFound('Image');
+      if (!entry || request.params.index >= entry.imageCount) throw notFound('Image');
       const image = await store.read(entry.id, request.params.index);
       if (!image) throw notFound('Image');
       // Stored images never change for a given history id.

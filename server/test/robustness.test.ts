@@ -103,6 +103,7 @@ function gatedPrinter() {
     printZpl: async () => nextId++,
     cancelJob: async () => {},
     configure: async () => {},
+    listJobs: async () => [],
   };
   return { printer, release };
 }
