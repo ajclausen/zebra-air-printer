@@ -11,7 +11,7 @@ import { labelDataUrl } from './helpers/png.js';
 import { createTestApp } from './helpers/test-app.js';
 
 describe('speed reset', () => {
-  it('writes no-value by default and 0 in zero mode', () => {
+  it('writes 0 in zero mode and the no-value tag in no-value mode', () => {
     expect(speedAttribute(null, 'no-value')).toEqual({
       name: 'print-speed-default',
       values: [{ tag: ValueTag.noValue, data: null }],
@@ -21,7 +21,8 @@ describe('speed reset', () => {
   });
 
   it('is selected with ECO_PRINTER_SPEED_RESET', () => {
-    expect(loadConfig({}).speedReset).toBe('no-value');
+    expect(loadConfig({}).speedReset).toBe('zero');
+    expect(loadConfig({ ECO_PRINTER_SPEED_RESET: 'no-value' }).speedReset).toBe('no-value');
     expect(loadConfig({ ECO_PRINTER_SPEED_RESET: 'zero' }).speedReset).toBe('zero');
     expect(() => loadConfig({ ECO_PRINTER_SPEED_RESET: 'maybe' })).toThrow(/no-value/);
   });

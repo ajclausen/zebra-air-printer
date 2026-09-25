@@ -29,12 +29,13 @@ export function pngJobAttributes(copies: number): IppAttribute[] {
 
 /**
  * How `speed: null` ("printer default") is written to print-speed-default.
- * - 'no-value': the IPP out-of-band no-value tag.
- * - 'zero': integer 0, which PAPPL/LPrint treat as automatic speed.
- * Selected with ECO_PRINTER_SPEED_RESET; still to be confirmed against LPrint 1.3.1 on the device.
+ * - 'zero': integer 0, which PAPPL/LPrint treat as automatic speed (default).
+ * - 'no-value': the IPP out-of-band no-value tag. LPrint 1.3.1 rejects this with
+ *   client-error-attributes-or-values-not-supported (checked on the Pi, 2026-09-25).
+ * Selected with ECO_PRINTER_SPEED_RESET.
  */
 export type SpeedResetMode = 'no-value' | 'zero';
-export const DEFAULT_SPEED_RESET: SpeedResetMode = 'no-value';
+export const DEFAULT_SPEED_RESET: SpeedResetMode = 'zero';
 
 export function speedAttribute(speed: number | null, reset: SpeedResetMode): IppAttribute {
   if (speed === null && reset === 'no-value') return attr.noValue('print-speed-default');

@@ -288,9 +288,9 @@ describe('printing through LPrint (fake IPP server)', () => {
 
     await t.app.inject({ method: 'PUT', url: '/api/admin/printer', payload: { speed: null }, headers: { cookie } });
     const reset = ipp.requests.filter((r) => r.code === Operation.setPrinterAttributes)[1]!;
-    // Default mode: out-of-band no-value rather than a blind 0.
+    // Default mode: integer 0 (automatic). LPrint 1.3.1 rejects no-value.
     expect(describeGroup(reset, DelimiterTag.printerAttributes)).toEqual({
-      'print-speed-default': { tag: ValueTag.noValue, values: [null] },
+      'print-speed-default': { tag: ValueTag.integer, values: [0] },
     });
 
     const bad = await t.app.inject({ method: 'PUT', url: '/api/admin/printer', payload: { speed: 9 }, headers: { cookie } });
