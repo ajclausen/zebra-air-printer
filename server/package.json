@@ -1,0 +1,29 @@
+{
+  "name": "@eco/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/main.js",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "ECO_PRINTER_URI=${ECO_PRINTER_URI:-fake} tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@eco/shared": "0.1.0",
+    "@fastify/cookie": "^11.1.2",
+    "@fastify/static": "^10.1.4",
+    "fastify": "^5.12.5",
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/pngjs": "^6.0.5",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.2"
+  }
+}
