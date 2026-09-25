@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { DEFAULT_SPEED_RESET, type SpeedResetMode } from './printer/ipp-printer.js';
 
 export const DEFAULT_PRINTER_URI = 'ipp://127.0.0.1:8000/ipp/print/Zebra_ZP_450';
 
@@ -18,6 +19,8 @@ export interface Config {
   allowedOrigins: string[];
   /** Simulated printer-state-reasons for the fake printer (ECO_FAKE_PRINTER_REASONS, comma separated). */
   fakePrinterReasons: string[];
+  /** How "printer default speed" is written to LPrint (ECO_PRINTER_SPEED_RESET). */
+  speedReset: SpeedResetMode;
   host: string;
 }
 
@@ -26,6 +29,12 @@ function port(value: string | undefined, fallback: number, name: string): number
   const n = Number(value);
   if (!Number.isInteger(n) || n < 0 || n > 65535) throw new Error(`${name} must be a port number, got "${value}"`);
   return n;
+}
+
+function speedResetMode(value: string | undefined): SpeedResetMode {
+  if (value === undefined || value === '') return DEFAULT_SPEED_RESET;
+  if (value === 'no-value' || value === 'zero') return value;
+  throw new Error(`ECO_PRINTER_SPEED_RESET must be "no-value" or "zero", got "${value}"`);
 }
 
 const list = (value: string | undefined) =>
@@ -58,6 +67,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       production ? [] : ['http://localhost:5173', 'http://127.0.0.1:5173'],
     ),
     fakePrinterReasons: list(env.ECO_FAKE_PRINTER_REASONS),
+    speedReset: speedResetMode(env.ECO_PRINTER_SPEED_RESET),
     host: env.ECO_HOST || '::',
   };
 }

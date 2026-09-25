@@ -40,6 +40,7 @@ NODE_ENV=production ECO_DATA_DIR=/tmp/eco ECO_PRINTER_URI=fake \
 | `ECO_STATIC_DIR` | unset (API only) | unset |
 | `ECO_HEALTH_DIR` | `/run/eco-printer-health` | same |
 | `ECO_ALLOWED_ORIGINS` | none | `http://localhost:5173`, `http://127.0.0.1:5173` |
+| `ECO_PRINTER_SPEED_RESET` | `no-value` | same |
 | `ECO_HOST` | `::` (falls back to `0.0.0.0` without IPv6) | same |
 
 Production means `NODE_ENV=production`. If `server.key` and `server.crt` exist in `ECO_TLS_DIR`, the app serves HTTPS on `ECO_HTTPS_PORT` and a redirect on `ECO_HTTP_PORT` (which still answers `/ca.crt` and `/api/health`). Otherwise it serves plain HTTP on `ECO_HTTP_PORT`. `SIGHUP` reloads the certificate; `SIGTERM` shuts down cleanly.
@@ -60,6 +61,10 @@ Production means `NODE_ENV=production`. If `server.key` and `server.crt` exist i
 ## Notes
 
 - Label PNGs are re-encoded as 8-bit grayscale, thresholded at 50% luminance, with a pHYs chunk of 7993 px/m on both axes. That is 203.02 dpi, which PAPPL reads as 203 whether libpng rounds or truncates; 7992 px/m could come out as 202 and make PAPPL scale the label.
+- "Printer default speed" (`speed: null`) is sent as `print-speed-default` with the out-of-band no-value tag. If LPrint rejects that, set `ECO_PRINTER_SPEED_RESET=zero` to send integer 0 instead (PAPPL's "automatic").
+- `GET /api/printer` never fails: connection errors, HTTP errors, and unreadable IPP responses all come back as state `unreachable` with an explanatory message.
+- On SIGTERM the server stops accepting prints (503 `shutting_down`) and waits up to 15 seconds for running ones before closing the database.
+- Job names have control characters removed and are cut to 200 UTF-8 bytes, including the ` (i/N)` suffix.
 - Printer status is cached for 2 seconds, and the cache is cleared after printing, canceling, or changing settings.
 - Studio jobs use `requesting-user-name=label-studio`; the queue marks them `studio` and everything else `airprint`.
 - Test prints go through the ZPL path and are not recorded in history (`historyId` is `""`).

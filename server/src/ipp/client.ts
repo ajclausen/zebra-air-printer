@@ -21,9 +21,17 @@ export class IppError extends Error {
   }
 }
 
-/** The printer service did not answer (connection refused, timeout, HTTP error). */
+/** The printer service did not answer (connection refused, timeout). */
 export class IppUnreachableError extends Error {
   override name = 'IppUnreachableError';
+}
+
+/** The printer service answered the HTTP request with a non-2xx status. */
+export class IppHttpError extends Error {
+  override name = 'IppHttpError';
+  constructor(readonly httpStatus: number) {
+    super(`Printer service returned HTTP ${httpStatus}`);
+  }
 }
 
 export interface IppRequest {
@@ -101,10 +109,18 @@ export class IppClient {
       throw new IppUnreachableError(`Printer service did not respond: ${(err as Error).message}`, { cause: err });
     }
     if (!response.ok) {
-      throw new IppUnreachableError(`Printer service returned HTTP ${response.status}`);
+      await response.body?.cancel().catch(() => {});
+      throw new IppHttpError(response.status);
     }
 
-    const message = decodeMessage(new Uint8Array(await response.arrayBuffer()));
+    let bytes: ArrayBuffer;
+    try {
+      bytes = await response.arrayBuffer();
+    } catch (err) {
+      throw new IppUnreachableError(`Printer service response was cut off: ${(err as Error).message}`, { cause: err });
+    }
+    // Throws IppDecodeError for malformed responses.
+    const message = decodeMessage(new Uint8Array(bytes));
     // 0x0000-0x00FF are successful-* status codes.
     if (message.code > 0x00ff) {
       const statusMessage = message.groups

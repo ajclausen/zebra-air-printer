@@ -3,6 +3,7 @@
 import http from 'node:http';
 import type https from 'node:https';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import type { FastifyBaseLogger } from 'fastify';
 import { buildApp } from './app.js';
 import { loadConfig, studioVersion } from './config.js';
@@ -15,6 +16,7 @@ import { createRedirectHandler, loadTls, mainServerFactory, reloadTls } from './
 import { readText, runCommand } from './system/exec.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const PRINT_DRAIN_MS = 15_000;
 
 async function listen(server: http.Server, port: number, host: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
@@ -41,7 +43,10 @@ async function main(): Promise<void> {
           reasons: config.fakePrinterReasons,
           logger: { info: (obj, msg) => log?.info(obj, msg) },
         })
-      : new IppPrinter(new IppClient(config.printerUri));
+      : new IppPrinter(new IppClient(config.printerUri), {
+          speedReset: config.speedReset,
+          onUnexpectedError: (err) => log?.error({ err }, 'unexpected error reading printer status'),
+        });
 
   const { app, ctx } = await buildApp({
     db,
@@ -57,8 +62,8 @@ async function main(): Promise<void> {
     fastify: {
       logger: { level: 'info' },
       serverFactory: servers.factory as never,
-      // Keep-alive sockets would otherwise hold shutdown open.
-      forceCloseConnections: true,
+      // On close, drop idle keep-alive sockets but let active requests (prints) finish.
+      forceCloseConnections: 'idle',
     },
   });
   log = app.log;
@@ -117,15 +122,22 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     app.log.info({ signal }, 'shutting down');
-    const force = setTimeout(() => process.exit(1), 10_000);
+    // Hard stop well inside the unit's TimeoutStopSec (30s).
+    const force = setTimeout(() => process.exit(1), 25_000);
     force.unref();
     clearInterval(housekeepingTimer);
     try {
       redirectServer?.closeAllConnections();
-      await Promise.all([
+      // Stop accepting connections; idle keep-alive sockets close, active requests finish.
+      const closing = Promise.all([
         app.close(),
         new Promise<void>((resolve) => (redirectServer ? redirectServer.close(() => resolve()) : resolve())),
       ]);
+      // Prints write history rows as jobs are accepted; let them finish before closing the DB.
+      if (!(await ctx.prints.drain(PRINT_DRAIN_MS))) {
+        app.log.warn({ pending: ctx.prints.pending }, 'gave up waiting for in-flight prints');
+      }
+      await Promise.race([closing, delay(3000)]);
       db.close();
     } catch (err) {
       app.log.error({ err }, 'error during shutdown');

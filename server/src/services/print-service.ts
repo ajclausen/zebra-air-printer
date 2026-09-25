@@ -1,3 +1,4 @@
+import { setImmediate } from 'node:timers/promises';
 import type { PrintRequest, PrintResponse } from '@eco/shared';
 import type { DesignRepository } from '../db/designs.js';
 import type { HistoryRepository } from '../db/history.js';
@@ -6,6 +7,7 @@ import { newId } from '../ids.js';
 import { decodePngDataUrl, InvalidImageError, normalizeLabelPng } from '../images/label-png.js';
 import { PrinterRequestError, PrinterUnreachableError, type Printer } from '../printer/printer.js';
 import type { StatusCache } from '../printer/status-cache.js';
+import { jobName } from '../printer/job-name.js';
 import { testLabelZpl } from '../printer/test-label.js';
 import type { PrintStore } from '../storage/print-store.js';
 
@@ -38,61 +40,109 @@ export function printerHttpError(err: unknown, prefix = ''): HttpError {
 
 export class PrintService {
   private readonly now: () => Date;
+  private readonly inFlight = new Set<Promise<unknown>>();
+  private closing = false;
 
   constructor(private readonly deps: PrintServiceDeps) {
     this.now = deps.now ?? (() => new Date());
   }
 
   /** Validates every image first (all or nothing), stores them, then submits one job per image. */
-  async print(request: PrintRequest): Promise<PrintResponse> {
-    const images = request.images.map((dataUrl, index) => {
-      try {
-        return normalizeLabelPng(decodePngDataUrl(dataUrl));
-      } catch (err) {
-        if (err instanceof InvalidImageError) {
-          throw new HttpError(400, 'invalid_image', `Image ${index + 1}: ${err.message}`);
+  print(request: PrintRequest): Promise<PrintResponse> {
+    return this.track(async () => {
+      const images: Buffer[] = [];
+      const count = request.images.length;
+      for (let index = 0; index < count; index++) {
+        try {
+          images.push(normalizeLabelPng(decodePngDataUrl(request.images[index]!)));
+        } catch (err) {
+          if (err instanceof InvalidImageError) {
+            throw new HttpError(400, 'invalid_image', `Image ${index + 1}: ${err.message}`);
+          }
+          throw err;
         }
-        throw err;
+        // Decoding is synchronous CPU work; yield between images so status polls and
+        // other requests are not starved during a 200-label batch.
+        if (index < count - 1) await setImmediate();
       }
-    });
-    const designId = request.designId && this.deps.designs.exists(request.designId) ? request.designId : null;
-    return this.submit({
-      name: request.name,
-      designId,
-      printedBy: request.printedBy?.trim() || null,
-      copies: request.copies,
-      images,
+      const designId = request.designId && this.deps.designs.exists(request.designId) ? request.designId : null;
+      return this.submit({
+        name: request.name,
+        designId,
+        printedBy: request.printedBy?.trim() || null,
+        copies: request.copies,
+        images,
+      });
     });
   }
 
   /** Re-sends the stored images of a history entry as a new history entry. */
-  async reprint(historyId: string, options: ReprintOptions = {}): Promise<PrintResponse> {
-    const entry = this.deps.history.get(historyId);
-    if (!entry) throw notFound('History entry');
-    const images = await this.deps.store.readAll(historyId, entry.labelCount);
-    if (!images) throw new HttpError(410, 'images_missing', 'The stored label images for this print are gone');
-    const designId = entry.designId && this.deps.designs.exists(entry.designId) ? entry.designId : null;
-    return this.submit({
-      name: entry.name,
-      designId,
-      printedBy: options.printedBy === undefined ? entry.printedBy : options.printedBy?.trim() || null,
-      copies: options.copies ?? entry.copies,
-      images,
+  reprint(historyId: string, options: ReprintOptions = {}): Promise<PrintResponse> {
+    return this.track(async () => {
+      const entry = this.deps.history.get(historyId);
+      if (!entry) throw notFound('History entry');
+      const images = await this.deps.store.readAll(historyId, entry.labelCount);
+      if (!images) throw new HttpError(410, 'images_missing', 'The stored label images for this print are gone');
+      const designId = entry.designId && this.deps.designs.exists(entry.designId) ? entry.designId : null;
+      return this.submit({
+        name: entry.name,
+        designId,
+        printedBy: options.printedBy === undefined ? entry.printedBy : options.printedBy?.trim() || null,
+        copies: options.copies ?? entry.copies,
+        images,
+      });
     });
   }
 
   /** Prints the server-generated ZPL test label. Not recorded in history (it has no PNG preview). */
-  async testPrint(): Promise<PrintResponse> {
-    const status = await this.deps.status.get();
-    const zpl = testLabelZpl({ printedAt: this.now(), darkness: status.darkness, speed: status.speed });
+  testPrint(): Promise<PrintResponse> {
+    return this.track(async () => {
+      const status = await this.deps.status.get();
+      const zpl = testLabelZpl({ printedAt: this.now(), darkness: status.darkness, speed: status.speed });
+      try {
+        const jobId = await this.deps.printer.printZpl(zpl, { jobName: jobName('ECO Label Studio test'), copies: 1 });
+        return { historyId: '', jobIds: [jobId] };
+      } catch (err) {
+        throw printerHttpError(err);
+      } finally {
+        this.deps.status.invalidate();
+      }
+    });
+  }
+
+  /** Number of print operations still running. */
+  get pending(): number {
+    return this.inFlight.size;
+  }
+
+  /**
+   * Stops accepting new prints and waits (up to `timeoutMs`) for running ones, so the
+   * database is not closed under them. Resolves true if everything finished.
+   */
+  async drain(timeoutMs: number): Promise<boolean> {
+    this.closing = true;
+    if (this.inFlight.size === 0) return true;
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), timeoutMs);
+    });
+    const settled = Promise.allSettled([...this.inFlight]).then(() => true as const);
     try {
-      const jobId = await this.deps.printer.printZpl(zpl, { jobName: 'ECO Label Studio test', copies: 1 });
-      return { historyId: '', jobIds: [jobId] };
-    } catch (err) {
-      throw printerHttpError(err);
+      return await Promise.race([settled, timeout]);
     } finally {
-      this.deps.status.invalidate();
+      clearTimeout(timer);
     }
+  }
+
+  private track<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.closing) {
+      return Promise.reject(new HttpError(503, 'shutting_down', 'The server is restarting. Try again in a moment.'));
+    }
+    const promise = operation();
+    this.inFlight.add(promise);
+    const forget = () => this.inFlight.delete(promise);
+    promise.then(forget, forget);
+    return promise;
   }
 
   private async submit(job: {
@@ -120,8 +170,8 @@ export class PrintService {
     try {
       // Sequential, so labels come out in order and LPrint is never flooded.
       for (const [index, image] of job.images.entries()) {
-        const jobName = job.images.length > 1 ? `${job.name} (${index + 1}/${job.images.length})` : job.name;
-        jobIds.push(await printer.printPng(image, { jobName, copies: job.copies }));
+        const name = jobName(job.name, index, job.images.length);
+        jobIds.push(await printer.printPng(image, { jobName: name, copies: job.copies }));
         history.setJobIds(historyId, jobIds);
       }
     } catch (err) {

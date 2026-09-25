@@ -9,6 +9,7 @@ import type { HealthCheck, ServiceName, ServiceStatus, SystemInfo } from '@eco/s
 import type { CommandRunner, TextReader } from './exec.js';
 
 export const SERVICE_NAMES: readonly ServiceName[] = ['lprint', 'avahi-daemon', 'eco-studio'];
+export const NMCLI_WIFI_ARGS = ['-t', '-f', 'ACTIVE,SSID,SIGNAL', 'dev', 'wifi', 'list', '--rescan', 'no'];
 export const HEALTH_CHECK_NAMES: ReadonlyArray<HealthCheck['name']> = ['network', 'lprint', 'advertise', 'studio'];
 
 export interface SystemInfoDeps {
@@ -190,7 +191,8 @@ export class SystemInfoService {
 
   private async wifi(): Promise<SystemInfo['wifi']> {
     try {
-      const { stdout } = await this.deps.run('nmcli', ['-t', '-f', 'ACTIVE,SSID,SIGNAL', 'dev', 'wifi']);
+      // --rescan no: report the cached scan; admin polling must never trigger a Wi-Fi scan.
+      const { stdout } = await this.deps.run('nmcli', NMCLI_WIFI_ARGS);
       return parseNmcliWifi(stdout);
     } catch {
       return null;

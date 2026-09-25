@@ -288,12 +288,48 @@ describe('printing through LPrint (fake IPP server)', () => {
 
     await t.app.inject({ method: 'PUT', url: '/api/admin/printer', payload: { speed: null }, headers: { cookie } });
     const reset = ipp.requests.filter((r) => r.code === Operation.setPrinterAttributes)[1]!;
+    // Default mode: out-of-band no-value rather than a blind 0.
     expect(describeGroup(reset, DelimiterTag.printerAttributes)).toEqual({
-      'print-speed-default': { tag: ValueTag.integer, values: [0] },
+      'print-speed-default': { tag: ValueTag.noValue, values: [null] },
     });
 
     const bad = await t.app.inject({ method: 'PUT', url: '/api/admin/printer', payload: { speed: 9 }, headers: { cookie } });
     expect(bad.statusCode).toBe(400);
+  });
+
+  it('reports garbage IPP responses as a readable status, never an error', async () => {
+    ipp.rawResponse = Buffer.from('<html>this is not IPP</html>');
+    const res = await t.app.inject({ url: '/api/printer' });
+    expect(res.statusCode).toBe(200);
+    const status = res.json<PrinterStatus>();
+    expect(status.state).toBe('unreachable');
+    expect(status.message).toMatch(/could not be read/);
+
+    const print = await t.app.inject({ method: 'POST', url: '/api/print', payload: { name: 'x', images: [labelDataUrl()], copies: 1 } });
+    expect(print.statusCode).toBe(502);
+    expect(print.json().error).toBe('printer_error');
+  });
+
+  it('reports HTTP errors from LPrint separately from unreachable', async () => {
+    ipp.httpStatus = 500;
+    const status = (await t.app.inject({ url: '/api/printer' })).json<PrinterStatus>();
+    expect(status.state).toBe('unreachable');
+    expect(status.message).toMatch(/HTTP 500/);
+
+    const print = await t.app.inject({ method: 'POST', url: '/api/print', payload: { name: 'x', images: [labelDataUrl()], copies: 1 } });
+    expect(print.statusCode).toBe(502);
+    expect(print.json()).toMatchObject({ error: 'printer_error', message: expect.stringMatching(/HTTP 500/) });
+  });
+
+  it('sanitises and limits job names', async () => {
+    await t.app.inject({
+      method: 'POST',
+      url: '/api/print',
+      payload: { name: 'Line\u0007one\nline\ttwo', images: [labelDataUrl()], copies: 1 },
+    });
+    expect(describeGroup(printJobs(ipp)[0]!, DelimiterTag.operationAttributes)['job-name']!.values).toEqual([
+      'Line one line two',
+    ]);
   });
 
   it('sends the admin test label as ZPL', async () => {

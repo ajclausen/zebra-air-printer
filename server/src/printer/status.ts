@@ -167,12 +167,13 @@ export function buildStatus(printer: IppGroup, jobGroups: IppGroup[], now: Date)
   };
 }
 
-export function unreachableStatus(now: Date, name = 'Zebra ZP 450'): PrinterStatus {
+/** Status for a printer service that did not answer usefully; `message` overrides the default text. */
+export function unreachableStatus(now: Date, message?: string): PrinterStatus {
   return {
-    name,
+    name: 'Zebra ZP 450',
     state: 'unreachable',
     reasons: [],
-    message: statusMessage('unreachable', []),
+    message: message ?? statusMessage('unreachable', []),
     queue: [],
     darkness: null,
     speed: null,

@@ -16,6 +16,10 @@ export interface FakeIppServer {
   printStatus: number;
   /** Fail Print-Job after this many successful jobs (for partial-failure tests). */
   failPrintAfter: number | null;
+  /** When set, every request gets these bytes instead of a real IPP response. */
+  rawResponse: Buffer | null;
+  /** HTTP status for every response (default 200). */
+  httpStatus: number;
   close(): Promise<void>;
 }
 
@@ -55,6 +59,8 @@ export async function startFakeIppServer(): Promise<FakeIppServer> {
     jobs: [],
     printStatus: 0,
     failPrintAfter: null,
+    rawResponse: null,
+    httpStatus: 200,
   };
 
   const server = http.createServer((req, res) => {
@@ -63,6 +69,11 @@ export async function startFakeIppServer(): Promise<FakeIppServer> {
     req.on('end', () => {
       const request = decodeMessage(Buffer.concat(chunks));
       state.requests.push(request);
+      if (state.rawResponse || state.httpStatus !== 200) {
+        res.writeHead(state.httpStatus, { 'content-type': 'application/ipp' });
+        res.end(state.rawResponse ?? Buffer.alloc(0));
+        return;
+      }
       let body: Buffer;
       switch (request.code) {
         case Operation.printJob: {
