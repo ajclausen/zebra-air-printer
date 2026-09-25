@@ -114,7 +114,16 @@ export interface HistoryEntry {
 
 /** GET /api/history?limit=50&before=<iso> -> HistoryEntry[] (newest first) */
 /** GET /api/history/:id/images/:index.png -> image/png */
-/** POST /api/history/:id/reprint -> PrintResponse (re-sends stored images) */
+/**
+ * POST /api/history/:id/reprint -> PrintResponse (re-sends stored images as a new history entry).
+ * Optional body: ReprintRequest; omitted fields reuse the original entry's values.
+ */
+/** DELETE /api/history/:id -> 204 (admin; removes the entry and its stored images) */
+
+export interface ReprintRequest {
+  copies?: number; // 1-100
+  printedBy?: string | null;
+}
 
 // ---------------------------------------------------------------------------
 // Printer status (from LPrint over IPP)
@@ -148,7 +157,10 @@ export interface PrinterStatus {
 
 /** GET /api/printer -> PrinterStatus */
 /** DELETE /api/printer/jobs/:id -> 204 (cancel one queued job; open to everyone) */
-/** POST /api/printer/test -> PrintResponse (admin; prints a server-generated test label) */
+/**
+ * POST /api/printer/test -> PrintResponse (admin; prints a server-generated ZPL test label).
+ * Test prints are not recorded in history, so historyId is "".
+ */
 
 // ---------------------------------------------------------------------------
 // Admin (session cookie "eco_admin", HttpOnly, Secure, SameSite=Strict)
@@ -193,7 +205,8 @@ export interface ServiceStatus {
 }
 
 export interface HealthCheck {
-  name: 'network' | 'lprint' | 'advertise';
+  /** 'studio' is the Label Studio check added by deploy/provision.sh. */
+  name: 'network' | 'lprint' | 'advertise' | 'studio';
   consecutiveFailures: number;
   nextActionAt: string | null;
 }
