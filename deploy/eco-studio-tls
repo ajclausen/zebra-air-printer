@@ -1,0 +1,219 @@
+#!/usr/bin/env bash
+# Maintain the local CA and the server certificate for ECO Label Studio.
+#
+# Runs as root from ExecStartPre=+ in eco-studio.service, so it is checked on
+# every service start. Safe to run by hand at any time; it only changes files
+# when something needs doing.
+#
+# Files in $ECO_TLS_DIR:
+#   ca.key, ca.crt    local CA (created once, never regenerated)
+#   server.key        leaf private key
+#   leaf.crt          leaf certificate only
+#   server.crt        leaf certificate followed by ca.crt (what the server sends)
+#   leaf-ips.txt      IPv4 addresses the current leaf was issued for
+#
+# Environment overrides (used for local testing):
+#   ECO_TLS_DIR    default /var/lib/eco-studio/tls
+#   ECO_TLS_OWNER  default eco-studio
+set -euo pipefail
+
+TLS_DIR="${ECO_TLS_DIR:-/var/lib/eco-studio/tls}"
+OWNER="${ECO_TLS_OWNER:-eco-studio}"
+
+CA_SUBJECT_CN="ECO Label Studio Local CA"
+CA_DAYS=3650
+LEAF_CN="eco-printer.local"
+LEAF_DAYS=825 # Apple rejects TLS server certificates valid for longer than 825 days.
+RENEW_SECONDS=$((30 * 86400))
+
+log() { printf 'eco-studio-tls: %s\n' "$*"; }
+warn() { printf 'eco-studio-tls: warning: %s\n' "$*" >&2; }
+die() {
+  printf 'eco-studio-tls: error: %s\n' "$*" >&2
+  exit 1
+}
+
+command -v openssl >/dev/null 2>&1 || die "openssl not found"
+
+# Keys must never be readable by anyone else, even briefly.
+umask 077
+
+OWNER_GROUP=""
+if id -u "$OWNER" >/dev/null 2>&1; then
+  OWNER_GROUP="$(id -gn "$OWNER")"
+else
+  warn "user '$OWNER' does not exist; leaving file ownership unchanged"
+fi
+
+set_owner() {
+  if [[ -n "$OWNER_GROUP" ]]; then
+    chown "$OWNER:$OWNER_GROUP" "$@"
+  fi
+}
+
+mkdir -p "$TLS_DIR"
+chmod 0700 "$TLS_DIR"
+set_owner "$TLS_DIR"
+cd "$TLS_DIR"
+
+# Repair modes and ownership of existing files. Quiet and idempotent.
+for f in ca.key server.key; do
+  if [[ -f "$f" ]]; then chmod 0600 "$f" && set_owner "$f"; fi
+done
+for f in ca.crt leaf.crt server.crt leaf-ips.txt; do
+  if [[ -f "$f" ]]; then chmod 0644 "$f" && set_owner "$f"; fi
+done
+
+# Work dirs left behind by a killed run.
+rm -rf "$TLS_DIR"/.work.*
+
+# All new files are built in a work dir inside TLS_DIR so the final mv is an
+# atomic rename on the same filesystem.
+WORK="$(mktemp -d "$TLS_DIR/.work.XXXXXX")"
+cleanup() { rm -rf "$WORK"; }
+trap cleanup EXIT
+
+gen_ec_key() {
+  local out=$1
+  if openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$out" 2>/dev/null; then
+    return 0
+  fi
+  # Older or stripped-down openssl builds without genpkey support.
+  openssl ecparam -name prime256v1 -genkey -noout -out "$out"
+}
+
+# A positive random serial: a leading 1 nibble keeps the top bit clear.
+random_serial() {
+  printf '0x1%s' "$(openssl rand -hex 15)"
+}
+
+# Global, non-loopback, non-link-local IPv4 addresses, sorted and
+# comma-joined. Empty when neither `hostname -I` nor `ip` is available (macOS).
+current_ips() {
+  local raw=""
+  if raw="$(hostname -I 2>/dev/null)"; then
+    :
+  elif raw="$(ip -4 -o addr show scope global 2>/dev/null | awk '{ sub(/\/.*/, "", $4); print $4 }')"; then
+    :
+  else
+    raw=""
+  fi
+  # shellcheck disable=SC2086 # word splitting is intended: one address per token
+  printf '%s\n' $raw |
+    awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && !/^127\./ && !/^169\.254\./' |
+    LC_ALL=C sort -u |
+    awk 'BEGIN { ORS = "" } { if (NR > 1) printf ","; print }'
+}
+
+write_req_config() {
+  local out=$1 cn=$2
+  cat >"$out" <<EOF
+[req]
+distinguished_name = dn
+prompt = no
+
+[dn]
+CN = $cn
+EOF
+}
+
+# --- CA -------------------------------------------------------------------
+
+ca_created=0
+if [[ ! -s ca.key || ! -s ca.crt ]]; then
+  if [[ -e ca.key || -e ca.crt ]]; then
+    warn "incomplete CA (ca.key or ca.crt missing); creating a new CA"
+  fi
+  write_req_config "$WORK/ca.cnf" "$CA_SUBJECT_CN"
+  cat >>"$WORK/ca.cnf" <<'EOF'
+
+[v3_ca]
+basicConstraints = critical, CA:true
+keyUsage = critical, keyCertSign, cRLSign
+subjectKeyIdentifier = hash
+EOF
+  gen_ec_key "$WORK/ca.key"
+  openssl req -x509 -new -sha256 -days "$CA_DAYS" \
+    -key "$WORK/ca.key" -set_serial "$(random_serial)" \
+    -config "$WORK/ca.cnf" -extensions v3_ca \
+    -out "$WORK/ca.crt"
+  chmod 0600 "$WORK/ca.key"
+  chmod 0644 "$WORK/ca.crt"
+  set_owner "$WORK/ca.key" "$WORK/ca.crt"
+  mv -f "$WORK/ca.key" ca.key
+  mv -f "$WORK/ca.crt" ca.crt
+  ca_created=1
+  log "created local CA (valid $CA_DAYS days): $(openssl x509 -in ca.crt -noout -fingerprint -sha256)"
+elif ! openssl x509 -in ca.crt -noout -checkend "$RENEW_SECONDS" >/dev/null; then
+  # Replacing the CA would force every device to re-trust, so only warn.
+  warn "local CA expires within 30 days; delete ca.key and ca.crt to create a new one"
+fi
+
+# --- Leaf -----------------------------------------------------------------
+
+IPS="$(current_ips)"
+
+reason=""
+if [[ $ca_created -eq 1 ]]; then
+  reason="CA was just created"
+elif [[ ! -s server.key || ! -s server.crt || ! -s leaf.crt ]]; then
+  reason="leaf key or certificate missing"
+elif [[ ! -f leaf-ips.txt ]]; then
+  reason="leaf-ips.txt missing"
+elif ! openssl x509 -in leaf.crt -noout -checkend "$RENEW_SECONDS" >/dev/null; then
+  reason="leaf certificate expires within 30 days"
+elif [[ "$(cat leaf-ips.txt)" != "$IPS" ]]; then
+  reason="IPv4 addresses changed from '$(cat leaf-ips.txt)' to '$IPS'"
+elif ! openssl verify -CAfile ca.crt leaf.crt >/dev/null 2>&1; then
+  reason="leaf certificate is not signed by the current CA"
+fi
+
+if [[ -z "$reason" ]]; then
+  log "leaf certificate is current ($(openssl x509 -in leaf.crt -noout -enddate)); nothing to do"
+  exit 0
+fi
+
+log "issuing leaf certificate: $reason"
+
+SAN="DNS:$LEAF_CN,DNS:eco-printer,DNS:localhost,IP:127.0.0.1"
+if [[ -n "$IPS" ]]; then
+  SAN="$SAN,IP:${IPS//,/,IP:}"
+fi
+
+write_req_config "$WORK/leaf.cnf" "$LEAF_CN"
+cat >"$WORK/leaf.ext" <<EOF
+basicConstraints = critical, CA:false
+keyUsage = critical, digitalSignature
+extendedKeyUsage = serverAuth
+subjectAltName = $SAN
+authorityKeyIdentifier = keyid
+subjectKeyIdentifier = hash
+EOF
+
+gen_ec_key "$WORK/server.key"
+openssl req -new -sha256 -key "$WORK/server.key" -config "$WORK/leaf.cnf" -out "$WORK/leaf.csr"
+# openssl x509 -req prints routine chatter on stderr; only show it on failure.
+if ! openssl x509 -req -sha256 -days "$LEAF_DAYS" \
+  -in "$WORK/leaf.csr" -CA ca.crt -CAkey ca.key -set_serial "$(random_serial)" \
+  -extfile "$WORK/leaf.ext" -out "$WORK/leaf.crt" 2>"$WORK/x509.err"; then
+  cat "$WORK/x509.err" >&2
+  die "signing the leaf certificate failed"
+fi
+openssl verify -CAfile ca.crt "$WORK/leaf.crt" >/dev/null ||
+  die "newly issued leaf certificate does not verify against ca.crt"
+
+cat "$WORK/leaf.crt" ca.crt >"$WORK/server.crt"
+printf '%s\n' "$IPS" >"$WORK/leaf-ips.txt"
+
+chmod 0600 "$WORK/server.key"
+chmod 0644 "$WORK/leaf.crt" "$WORK/server.crt" "$WORK/leaf-ips.txt"
+set_owner "$WORK/server.key" "$WORK/leaf.crt" "$WORK/server.crt" "$WORK/leaf-ips.txt"
+
+# Key first, then certificates. leaf-ips.txt goes last so an interrupted run
+# is detected and redone on the next start.
+mv -f "$WORK/server.key" server.key
+mv -f "$WORK/leaf.crt" leaf.crt
+mv -f "$WORK/server.crt" server.crt
+mv -f "$WORK/leaf-ips.txt" leaf-ips.txt
+
+log "issued leaf certificate for $SAN ($(openssl x509 -in leaf.crt -noout -enddate))"
