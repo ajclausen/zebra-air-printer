@@ -1,0 +1,176 @@
+Description: eco-printer: capture each printed page as a 1-bit PBM
+ Writes job-<id>-page-<n>.pbm to /var/spool/lprint-capture (when that
+ directory exists) so ECO Label Studio can preview and reprint every job,
+ including AirPrint jobs.
+Author: Andrew Clausen <andrew@clausen.app>
+---
+--- a/lprint-zpl.c
++++ b/lprint-zpl.c
+@@ -10,6 +10,17 @@
+ //
+ 
+ #include "lprint.h"
++#include <errno.h>
++#include <sys/stat.h>
++#include <unistd.h>
++
++
++//
++// eco-printer: every printed page is also written as a 1-bit PBM to this
++// directory (if it exists) so ECO Label Studio can show and reprint it.
++//
++
++#define LPRINT_ZPL_CAPTURE_DIR "/var/spool/lprint-capture"
+ 
+ 
+ // Define to 1 to use run-length encoding, 0 for uncompressed
+@@ -53,6 +64,11 @@
+   unsigned char	*comp_buffer;		// Compression buffer
+   unsigned char *last_buffer;		// Last line
+   int		last_buffer_set;	// Is the last line set?
++  FILE		*capture;		// eco-printer: page bitmap capture file
++  unsigned	capture_height,		// eco-printer: expected lines
++		capture_lines;		// eco-printer: lines written
++  char		capture_temp[1024],	// eco-printer: temporary filename
++		capture_name[1024];	// eco-printer: final filename
+ } lprint_zpl_t;
+ 
+ 
+@@ -177,6 +193,8 @@
+ #endif // ZPL_COMPRESSION
+ static bool	lprint_zpl_printfile(pappl_job_t *job, pappl_pr_options_t *options, pappl_device_t *device);
+ static bool	lprint_zpl_rendjob(pappl_job_t *job, pappl_pr_options_t *options, pappl_device_t *device);
++static void	lprint_zpl_capture_close(pappl_job_t *job, lprint_zpl_t *zpl);
++static void	lprint_zpl_capture_open(pappl_job_t *job, pappl_pr_options_t *options, lprint_zpl_t *zpl, unsigned page);
+ static bool	lprint_zpl_rendpage(pappl_job_t *job, pappl_pr_options_t *options, pappl_device_t *device, unsigned page);
+ static bool	lprint_zpl_rstartjob(pappl_job_t *job, pappl_pr_options_t *options, pappl_device_t *device);
+ static bool	lprint_zpl_rstartpage(pappl_job_t *job, pappl_pr_options_t *options, pappl_device_t *device, unsigned page);
+@@ -457,6 +475,79 @@
+ }
+ 
+ 
++
++//
++// 'lprint_zpl_capture_close()' - Finish a page capture (eco-printer).
++//
++// Keeps the file only when every line of the page was written.
++//
++
++static void
++lprint_zpl_capture_close(
++    pappl_job_t  *job,			// I - Job
++    lprint_zpl_t *zpl)			// I - ZPL driver data
++{
++  bool	complete;			// Were all lines written?
++
++
++  if (!zpl->capture)
++    return;
++
++  complete = zpl->capture_lines == zpl->capture_height;
++
++  if (fclose(zpl->capture) || !complete || rename(zpl->capture_temp, zpl->capture_name))
++  {
++    if (complete)
++      papplLogJob(job, PAPPL_LOGLEVEL_WARN, "Unable to save page capture '%s': %s", zpl->capture_name, strerror(errno));
++
++    unlink(zpl->capture_temp);
++  }
++
++  zpl->capture = NULL;
++}
++
++
++//
++// 'lprint_zpl_capture_open()' - Start a page capture (eco-printer).
++//
++// Writes a binary PBM ("P4", 1 = black, rows padded to whole bytes) named
++// job-<id>-page-<n>.pbm, via a dotfile that is renamed when the page is done.
++// Does nothing when the capture directory does not exist.
++//
++
++static void
++lprint_zpl_capture_open(
++    pappl_job_t        *job,		// I - Job
++    pappl_pr_options_t *options,	// I - Job options
++    lprint_zpl_t       *zpl,		// I - ZPL driver data
++    unsigned           page)		// I - Page number (1-based)
++{
++  struct stat	info;			// Capture directory info
++  unsigned	width;			// Bitmap width in pixels
++
++
++  zpl->capture        = NULL;
++  zpl->capture_lines  = 0;
++  zpl->capture_height = options->header.cupsHeight;
++
++  if (stat(LPRINT_ZPL_CAPTURE_DIR, &info) || !S_ISDIR(info.st_mode))
++    return;
++
++  if ((width = options->header.cupsWidth) == 0 || (width + 7) / 8 != zpl->dither.out_width)
++    width = zpl->dither.out_width * 8;
++
++  snprintf(zpl->capture_name, sizeof(zpl->capture_name), "%s/job-%d-page-%u.pbm", LPRINT_ZPL_CAPTURE_DIR, papplJobGetID(job), page);
++  snprintf(zpl->capture_temp, sizeof(zpl->capture_temp), "%s/.job-%d-page-%u.pbm.tmp", LPRINT_ZPL_CAPTURE_DIR, papplJobGetID(job), page);
++
++  if ((zpl->capture = fopen(zpl->capture_temp, "wb")) == NULL)
++  {
++    papplLogJob(job, PAPPL_LOGLEVEL_WARN, "Unable to create page capture '%s': %s", zpl->capture_temp, strerror(errno));
++    return;
++  }
++
++  fprintf(zpl->capture, "P4\n%u %u\n", width, zpl->capture_height);
++}
++
+ //
+ // 'lprint_zpl_rendjob()' - End a job.
+ //
+@@ -473,6 +564,9 @@
+ 
+   (void)options;
+ 
++  if (zpl)
++    lprint_zpl_capture_close(job, zpl);
++
+   free(zpl);
+   papplJobSetData(job, NULL);
+ 
+@@ -498,6 +592,7 @@
+   (void)page;
+ 
+   lprint_zpl_rwriteline(job, options, device, options->header.cupsHeight, NULL);
++  lprint_zpl_capture_close(job, zpl);
+ 
+   papplDevicePrintf(device, "^XA\n^POI\n^PW%u\n^LH0,0\n^LT%d\n", options->header.cupsWidth, options->media.top_offset * options->printer_resolution[1] / 2540);
+ 
+@@ -652,6 +747,8 @@
+   // Download bitmap...
+   papplDevicePrintf(device, "~DGR:LPRINT.GRF,%u,%u,\n", zpl->dither.in_height * zpl->dither.out_width, zpl->dither.out_width);
+ 
++  lprint_zpl_capture_open(job, options, zpl, page);
++
+   // Allocate memory for writing the bitmap...
+   zpl->comp_buffer     = malloc(2 * zpl->dither.out_width + 1);
+   zpl->last_buffer     = malloc(zpl->dither.out_width);
+@@ -695,6 +792,21 @@
+   if (!lprintDitherLine(&zpl->dither, y, line))
+     return (true);
+ 
++  if (zpl->capture)
++  {
++    if (fwrite(zpl->dither.output, 1, zpl->dither.out_width, zpl->capture) == zpl->dither.out_width)
++    {
++      zpl->capture_lines ++;
++    }
++    else
++    {
++      papplLogJob(job, PAPPL_LOGLEVEL_WARN, "Unable to write page capture: %s", strerror(errno));
++      fclose(zpl->capture);
++      zpl->capture = NULL;
++      unlink(zpl->capture_temp);
++    }
++  }
++
+   // Determine whether this row is the same as the previous line.
+   // If so, output a ':' and return...
+   if (zpl->last_buffer_set && !memcmp(zpl->dither.output, zpl->last_buffer, zpl->dither.out_width))

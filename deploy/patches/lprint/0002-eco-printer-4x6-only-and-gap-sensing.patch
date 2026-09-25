@@ -1,0 +1,33 @@
+Description: eco-printer: advertise 4x6 only; send ^MNY for gap tracking
+ Gap tracking previously fell through to ^MNM (black-mark sensing).
+Author: Andrew Clausen <andrew@clausen.app>
+---
+--- a/lprint-zpl.c
++++ b/lprint-zpl.c
+@@ -242,9 +242,9 @@
+   }
+   else
+   {
+-    // 4 inch printer...
+-    data->num_media = (int)(sizeof(lprint_zpl_4inch_media) / sizeof(lprint_zpl_4inch_media[0]));
+-    memcpy(data->media, lprint_zpl_4inch_media, sizeof(lprint_zpl_4inch_media));
++    // 4 inch printer (eco-printer: only advertise 4x6 labels)...
++    data->num_media = 1;
++    data->media[0]  = "na_index-4x6_4x6in";
+ 
+     papplCopyString(data->media_ready[0].size_name, "na_index-4x6_4x6in", sizeof(data->media_ready[0].size_name));
+     papplCopyString(data->media_ready[0].type, "labels", sizeof(data->media_ready[0].type));
+@@ -511,10 +511,10 @@
+   {
+     if (options->media.tracking == PAPPL_MEDIA_TRACKING_CONTINUOUS)
+       papplDevicePrintf(device, "^LL%u\n^MNN\n", options->header.cupsHeight);
+-    else if (options->media.tracking == PAPPL_MEDIA_TRACKING_WEB)
+-      papplDevicePuts(device, "^MNY\n");
+-    else
++    else if (options->media.tracking == PAPPL_MEDIA_TRACKING_MARK)
+       papplDevicePuts(device, "^MNM\n");
++    else
++      papplDevicePuts(device, "^MNY\n");	// gap/web sensing
+   }
+ 
+   if (strstr(papplPrinterGetDriverName(papplJobGetPrinter(job)), "-tt"))

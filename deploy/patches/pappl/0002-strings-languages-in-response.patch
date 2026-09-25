@@ -1,0 +1,16 @@
+Description: Add printer-strings-languages-supported to the response, not printer attrs
+ Fixed upstream in PAPPL 1.4. Without this the attribute is appended to the
+ printer on every Get-Printer-Attributes request.
+Author: Andrew Clausen <andrew@clausen.app>
+---
+--- a/pappl/printer-ipp.c
++++ b/pappl/printer-ipp.c
+@@ -434,7 +434,7 @@
+ //    _papplRWUnlock(printer->system);
+ 
+     if (num_values > 0)
+-      ippAddStrings(printer->attrs, IPP_TAG_PRINTER, IPP_TAG_LANGUAGE, "printer-strings-languages-supported", IPP_NUM_CAST num_values, NULL, svalues);
++      ippAddStrings(client->response, IPP_TAG_PRINTER, IPP_TAG_LANGUAGE, "printer-strings-languages-supported", IPP_NUM_CAST num_values, NULL, svalues);
+   }
+ 
+   if (!ra || cupsArrayFind(ra, "printer-strings-uri"))
