@@ -97,7 +97,7 @@ export function usePrint() {
 export function useReprint() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: api.history.reprint,
+    mutationFn: (id: string) => api.history.reprint(id),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.printer });
       void client.invalidateQueries({ queryKey: queryKeys.history });

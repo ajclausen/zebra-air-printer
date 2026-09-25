@@ -10,6 +10,7 @@ import type {
   PrinterStatus,
   PrintRequest,
   PrintResponse,
+  ReprintRequest,
   ServiceName,
   StudioSettings,
   SystemInfo,
@@ -104,7 +105,9 @@ export const api = {
 
   history: {
     list: (query: { limit?: number; before?: string } = {}) => request<HistoryEntry[]>('GET', '/api/history', { query }),
-    reprint: (id: string) => request<PrintResponse>('POST', `/api/history/${encodeURIComponent(id)}/reprint`),
+    reprint: (id: string, body: ReprintRequest = {}) => request<PrintResponse>('POST', `/api/history/${encodeURIComponent(id)}/reprint`, { body }),
+    /** Admin only: removes the entry and its stored images. */
+    remove: (id: string) => request<void>('DELETE', `/api/history/${encodeURIComponent(id)}`),
     imageUrl: (id: string, index: number) => `/api/history/${encodeURIComponent(id)}/images/${index}.png`,
   },
 

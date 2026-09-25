@@ -916,6 +916,7 @@ function buildSystemInfo(store: Store, at: Date): SystemInfo {
       { name: 'network', consecutiveFailures: 0, nextActionAt: null },
       { name: 'lprint', consecutiveFailures: 0, nextActionAt: null },
       { name: 'advertise', consecutiveFailures: 0, nextActionAt: null },
+      { name: 'studio', consecutiveFailures: 0, nextActionAt: null },
     ],
     versions: { studio: '0.1.0', node: 'v24.8.0', lprint: '1.3.1' },
     certificate: { notAfter: store.certNotAfter, fingerprintSha256: store.certFingerprint },
@@ -1060,6 +1061,13 @@ async function routeRequest(store: Store, req: Connect.IncomingMessage, res: Ser
       const entry = store.history.get(historyReprintMatch.id ?? '');
       if (!entry) throw new HttpError(404, 'not_found', 'History entry not found.');
       sendJson(res, 200, reprintHistory(store, entry, at));
+      return;
+    }
+    const historyDeleteMatch = matchPath('/api/history/:id', pathname);
+    if (method === 'DELETE' && historyDeleteMatch) {
+      requireAdmin(store, req);
+      if (!store.history.delete(historyDeleteMatch.id ?? '')) throw new HttpError(404, 'not_found', 'History entry not found.');
+      sendNoContent(res, 204);
       return;
     }
     const historyImageMatch = pathname.match(/^\/api\/history\/([^/]+)\/images\/(\d+)\.png$/);
