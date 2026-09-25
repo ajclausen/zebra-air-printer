@@ -1,0 +1,24 @@
+// Installed to /etc/polkit-1/rules.d/50-eco-studio.rules by deploy/provision.sh.
+//
+// Lets the eco-studio service user restart a fixed set of units and reboot the
+// Pi through systemctl. Everything else falls through to the default policy.
+// Plain ES5: polkit runs rules in duktape.
+polkit.addRule(function (action, subject) {
+    if (subject.user != "eco-studio") {
+        return;
+    }
+
+    if (action.id == "org.freedesktop.systemd1.manage-units") {
+        var units = ["lprint.service", "avahi-daemon.service", "eco-studio.service"];
+        if (units.indexOf(action.lookup("unit")) >= 0 &&
+            action.lookup("verb") == "restart") {
+            return polkit.Result.YES;
+        }
+        return;
+    }
+
+    if (action.id == "org.freedesktop.login1.reboot" ||
+        action.id == "org.freedesktop.login1.reboot-multiple-sessions") {
+        return polkit.Result.YES;
+    }
+});

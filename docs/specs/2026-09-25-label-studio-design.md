@@ -50,7 +50,7 @@ Monorepo with npm workspaces:
 2. On print, the web app renders the document at 1:1 to an offscreen canvas and replaces `{{variables}}`, counters, and dates per label.
 3. Conversion to 1-bit: images are converted with the user's chosen mode (threshold or Floyd-Steinberg dither) when inserted; the whole label gets a final threshold at 50% luminance so every pixel is pure black or white. The preview dialog shows this exact bitmap.
 4. Landscape labels are rotated 90 degrees clockwise so every image sent is 812 x 1218 portrait.
-5. `POST /api/print` with PNG data URLs. The server validates dimensions and PNG signature, stores the images under `/var/lib/eco-studio/prints/<historyId>/<n>.png`, and submits one IPP Print-Job per image (`document-format=image/png`, `copies`, `job-name`, `requesting-user-name=label-studio`, `media=na_index-4x6_4x6in`, `print-scaling=none`, `print-color-mode=bi-level`).
+5. `POST /api/print` with PNG data URLs. The server validates dimensions and PNG signature, re-encodes each as grayscale PNG with a pHYs chunk of 7993 pixels/meter (203.02 dpi, so PAPPL's libpng lookup yields 203 whether it rounds or truncates, and `print-scaling=none` maps 812 px to 812 dots), stores the images under `/var/lib/eco-studio/prints/<historyId>/<n>.png`, and submits one IPP Print-Job per image (`document-format=image/png`, `copies`, `job-name`, `requesting-user-name=label-studio`, `media=na_index-4x6_4x6in`, `print-scaling=none`, `print-color-mode=bi-level`).
 6. Jobs submitted with `requesting-user-name=label-studio` show as source `studio` in the queue; everything else is `airprint`.
 
 Barcodes render through bwip-js to a canvas at integer module widths in printer dots (no scaling after rendering), so bars land on whole dots and scan reliably.
