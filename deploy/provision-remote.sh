@@ -5,17 +5,25 @@
 #
 #   sudo deploy/provision-remote.sh [SRC_DIR]
 #   deploy/provision-remote.sh --patch-health-only
+#   deploy/provision-remote.sh --dirs-only
 #
 # SRC_DIR holds eco-studio.service, eco-studio-tls.service, eco-studio-tls.timer,
-# eco-studio-tls and 50-eco-studio.rules, and defaults to this script's directory. --patch-health-only runs only the
-# eco-printer-health patch step (target overridable with ECO_HEALTH_SCRIPT),
-# which makes that step testable on any machine. Safe to re-run.
+# eco-studio-tls and 50-eco-studio.rules, and defaults to this script's
+# directory. --patch-health-only and --dirs-only run just that step, which makes
+# them testable on any machine (with ECO_HEALTH_SCRIPT and ECO_PROVISION_ROOT
+# pointing at scratch paths). Safe to re-run.
 set -euo pipefail
 
+# Test-only prefix for the directories ensure_dirs creates. Always empty on the Pi.
+ROOT="${ECO_PROVISION_ROOT:-}"
 SERVICE_USER=eco-studio
-RELEASES_DIR=/opt/eco-studio/releases
-CURRENT_DIR=/opt/eco-studio/current
-DATA_DIR=/var/lib/eco-studio
+OPT_DIR="$ROOT/opt/eco-studio"
+RELEASES_DIR="$OPT_DIR/releases"
+CURRENT_DIR="$OPT_DIR/current"
+DATA_DIR="$ROOT/var/lib/eco-studio"
+# The patched LPrint driver writes page bitmaps here (only if it exists);
+# eco-studio turns them into history previews and deletes them.
+CAPTURE_DIR="$ROOT/var/spool/lprint-capture"
 NODE_MAJOR_WANTED=24
 HEALTH_MARKER='record_ok studio'
 HEALTH_ANCHOR_RE='^# 4\. Keep a known-good copy'
@@ -43,6 +51,7 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [SRC_DIR]
        $(basename "$0") --patch-health-only
+       $(basename "$0") --dirs-only
 
 Provision this Pi for ECO Label Studio (run as root). SRC_DIR defaults to the
 directory containing this script.
@@ -214,12 +223,16 @@ ensure_user() {
 }
 
 ensure_dirs() {
-  mkdir -p "$RELEASES_DIR" "$DATA_DIR"
-  chown root:root /opt/eco-studio "$RELEASES_DIR"
-  chmod 0755 /opt/eco-studio "$RELEASES_DIR"
+  mkdir -p "$RELEASES_DIR" "$DATA_DIR" "$CAPTURE_DIR"
+  chown root:root "$OPT_DIR" "$RELEASES_DIR"
+  chmod 0755 "$OPT_DIR" "$RELEASES_DIR"
   chown "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR"
   chmod 0750 "$DATA_DIR"
-  log "Directories ready: $RELEASES_DIR, $DATA_DIR"
+  # LPrint (root) writes captures; setgid keeps them in group eco-studio, which
+  # can read and delete them. Nobody else can list the directory.
+  chown "root:$SERVICE_USER" "$CAPTURE_DIR"
+  chmod 2770 "$CAPTURE_DIR"
+  log "Directories ready: $RELEASES_DIR, $DATA_DIR, $CAPTURE_DIR"
 }
 
 install_files() {
@@ -279,6 +292,10 @@ main() {
       ;;
     --patch-health-only)
       patch_health_script
+      return
+      ;;
+    --dirs-only)
+      ensure_dirs
       return
       ;;
     -*)

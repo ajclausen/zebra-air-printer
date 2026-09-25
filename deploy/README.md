@@ -21,7 +21,7 @@ Run this once per Pi, and again whenever a file in `deploy/` other than `deploy.
 1. Installs `ca-certificates`, `curl`, `gnupg`, `openssl` and `rsync` if any are missing.
 2. Installs Node 24 from NodeSource if `node` is missing or older than 24, and pins `nodejs` to NodeSource so Debian's older package does not replace it.
 3. Creates the system user `eco-studio` and adds it to `systemd-journal`.
-4. Creates `/opt/eco-studio/releases` and `/var/lib/eco-studio`.
+4. Creates `/opt/eco-studio/releases`, `/var/lib/eco-studio`, and the LPrint page-capture directory `/var/spool/lprint-capture` (`root:eco-studio`, mode `2770`; setgid so captures belong to group `eco-studio`). The patched LPrint driver only writes captures when that directory exists (see `deploy/patches/`).
 5. Installs `eco-studio.service`, `eco-studio-tls.service`, `eco-studio-tls.timer`, the TLS script and the polkit rule, and installs `polkitd` if it is missing.
 6. Enables `eco-studio` and enables and starts `eco-studio-tls.timer`. It restarts `eco-studio` if a release is already deployed. Otherwise it prints "No release deployed yet; run deploy/deploy.sh".
 7. Adds the `studio` check to `/usr/local/sbin/eco-printer-health` (see below). If that fails, it prints a warning and provisioning still succeeds.
@@ -85,6 +85,7 @@ sudo systemctl restart eco-studio
 | Database | `/var/lib/eco-studio/studio.db` (SQLite, WAL mode, so also `-wal` and `-shm` files) |
 | Database backups | `/var/lib/eco-studio/backups/studio-<ts>.db` |
 | Print images | `/var/lib/eco-studio/prints/<historyId>/<n>.png` |
+| LPrint page captures | `/var/spool/lprint-capture/job-<id>-page-<n>.pbm` (transient; eco-studio converts and deletes them) |
 | TLS files | `/var/lib/eco-studio/tls/` |
 | Logs | `journalctl -u eco-studio` |
 | Units | `/etc/systemd/system/eco-studio.service`, `eco-studio-tls.service`, `eco-studio-tls.timer` |
@@ -92,7 +93,7 @@ sudo systemctl restart eco-studio
 | TLS script | `/usr/local/sbin/eco-studio-tls` |
 | Health counters | `/run/eco-printer-health/studio` |
 
-The service runs as `eco-studio`, and only `/var/lib/eco-studio` is writable to it. Release files are owned by root. The polkit rule lets `eco-studio` restart `lprint`, `avahi-daemon` and `eco-studio` and reboot the Pi, including when someone is logged in or a process holds a shutdown inhibitor. It allows nothing else.
+The service runs as `eco-studio`, and only `/var/lib/eco-studio` and `/var/spool/lprint-capture` are writable to it. Release files are owned by root. The polkit rule lets `eco-studio` restart `lprint`, `avahi-daemon` and `eco-studio` and reboot the Pi, including when someone is logged in or a process holds a shutdown inhibitor. It allows nothing else.
 
 ## TLS
 

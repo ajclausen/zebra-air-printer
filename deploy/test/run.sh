@@ -170,6 +170,30 @@ touch "$HB/healthy"
 run_block
 check "recovery resets the counter" test "$(cat "$HB/state/studio")" = "0 0 0"
 
+# --- Directories and capture spool ---------------------------------------------------
+
+section "provision directories"
+PROV="$TMP_ROOT/prov"
+mkdir -p "$PROV"
+provision_dirs() {
+  SIM="$PROV" ECO_PROVISION_ROOT="$PROV/root" PATH="$FAKES/remote:$PATH" \
+    bash "$DEPLOY_DIR/provision-remote.sh" --dirs-only
+}
+if provision_dirs >"$PROV/dirs1.log" 2>&1; then pass "--dirs-only succeeds"; else fail "--dirs-only succeeds"; cat "$PROV/dirs1.log"; fi
+if provision_dirs >"$PROV/dirs2.log" 2>&1; then pass "--dirs-only is idempotent"; else fail "--dirs-only is idempotent"; fi
+CAP="$PROV/root/var/spool/lprint-capture"
+mode_of() { stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"; }
+# macOS drops the setgid bit for non-root users outside the directory's group,
+# so check the permission bits on disk and the setgid request in the script.
+check "capture dir is group rwx, no access for others" test "$(mode_of "$CAP")" = 770
+# shellcheck disable=SC2016 # literal text searched for in the script
+check "capture dir is made setgid (2770)" file_contains "$DEPLOY_DIR/provision-remote.sh" 'chmod 2770 "$CAPTURE_DIR"'
+check "capture dir owned root:eco-studio" file_contains "$PROV/chown.log" "chown root:eco-studio $CAP"
+check "data dir owned eco-studio" file_contains "$PROV/chown.log" "chown eco-studio:eco-studio $PROV/root/var/lib/eco-studio"
+check "releases dir is 0755" test "$(mode_of "$PROV/root/opt/eco-studio/releases")" = 755
+check "unit can write the capture dir (optional path)" file_contains "$DEPLOY_DIR/eco-studio.service" "ReadWritePaths=/var/lib/eco-studio -/var/spool/lprint-capture"
+check "unit points the app at the capture dir" file_contains "$DEPLOY_DIR/eco-studio.service" "Environment=ECO_CAPTURE_DIR=/var/spool/lprint-capture"
+
 # --- 6. TLS script ---------------------------------------------------------------
 
 section "eco-studio-tls"

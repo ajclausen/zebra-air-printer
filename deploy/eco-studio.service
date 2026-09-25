@@ -28,6 +28,7 @@ Environment=ECO_TLS_DIR=/var/lib/eco-studio/tls
 Environment=ECO_HTTP_PORT=80
 Environment=ECO_HTTPS_PORT=443
 Environment=ECO_STATIC_DIR=/opt/eco-studio/current/web/dist
+Environment=ECO_CAPTURE_DIR=/var/spool/lprint-capture
 
 # Bind ports 80 and 443 without running as root.
 AmbientCapabilities=CAP_NET_BIND_SERVICE
@@ -47,12 +48,14 @@ TimeoutStopSec=30s
 # Sandboxing.
 # ProtectSystem=strict mounts the whole filesystem read-only for this service
 # but leaves it readable, so /run/eco-printer-health, /proc and
-# /sys/class/thermal can still be read. Only /var/lib/eco-studio is writable.
+# /sys/class/thermal can still be read. Only /var/lib/eco-studio and the LPrint
+# page-capture directory (read and deleted after ingestion) are writable. The
+# "-" prefix keeps the unit starting if the capture directory doesn't exist.
 # journalctl works through membership in the systemd-journal group.
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
-ReadWritePaths=/var/lib/eco-studio
+ReadWritePaths=/var/lib/eco-studio -/var/spool/lprint-capture
 
 # The app restarts units and reboots the Pi by running systemctl. systemctl
 # talks to PID 1 and logind over D-Bus (/run/dbus/system_bus_socket), and
