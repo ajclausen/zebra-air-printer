@@ -28,17 +28,12 @@ export type RequestHandler = (req: IncomingMessage, res: ServerResponse) => void
 /** Paths answered over plain HTTP so devices can fetch the CA before trusting it, and health checks work either way. */
 export const PLAIN_HTTP_PATHS = new Set(['/ca.crt', '/api/health']);
 
-const HOST_PATTERN = /^[A-Za-z0-9.-]+$|^\[[0-9A-Fa-f:.]+\]$/;
+const HOST_HEADER = /^([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(:\d{1,5})?$/;
 
-/** Host name (without port) from the Host header, falling back to the mDNS name for garbage. */
+/** Host name (without port) from the Host header, falling back to the mDNS name for anything malformed. */
 export function redirectHostname(hostHeader: string | undefined, fallback = 'eco-printer.local'): string {
-  if (!hostHeader) return fallback;
-  try {
-    const hostname = new URL(`http://${hostHeader}`).hostname;
-    return HOST_PATTERN.test(hostname) ? hostname : fallback;
-  } catch {
-    return fallback;
-  }
+  const match = hostHeader ? HOST_HEADER.exec(hostHeader) : null;
+  return match ? match[1]! : fallback;
 }
 
 /**
@@ -75,4 +70,12 @@ export function mainServerFactory(tls: TlsMaterial | null) {
       return handler;
     },
   };
+}
+
+/** Swaps the certificate on a running HTTPS server (SIGHUP). Returns false if the files are missing. */
+export function reloadTls(server: https.Server, tlsDir: string): boolean {
+  const next = loadTls(tlsDir);
+  if (!next) return false;
+  server.setSecureContext({ key: next.key, cert: next.cert });
+  return true;
 }

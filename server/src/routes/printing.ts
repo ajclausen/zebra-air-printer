@@ -62,7 +62,7 @@ export function printingRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   app.delete<{ Params: { id: string } }>(
     '/api/history/:id',
-    { schema: { params: idParams }, preHandler: requireAdmin(ctx) },
+    { schema: { params: idParams }, onRequest: requireAdmin(ctx) },
     async (request, reply) => {
       if (!history.delete(request.params.id)) throw notFound('History entry');
       await store.remove(request.params.id);
@@ -87,5 +87,5 @@ export function printingRoutes(app: FastifyInstance, ctx: AppContext): void {
     },
   );
 
-  app.post('/api/printer/test', { preHandler: requireAdmin(ctx) }, async () => prints.testPrint());
+  app.post('/api/printer/test', { onRequest: requireAdmin(ctx) }, async () => prints.testPrint());
 }

@@ -1,4 +1,4 @@
-import type { FastifyReply, FastifyRequest, preHandlerHookHandler } from 'fastify';
+import type { FastifyReply, FastifyRequest, onRequestHookHandler, preHandlerHookHandler } from 'fastify';
 import { SESSION_COOKIE, type Session } from '../auth/admin-auth.js';
 import type { AppContext } from '../context.js';
 import { HttpError, unauthorized } from '../errors.js';
@@ -49,7 +49,7 @@ export function hasAdminSession(ctx: AppContext, request: FastifyRequest, reply:
   return check.valid;
 }
 
-export function requireAdmin(ctx: AppContext): preHandlerHookHandler {
+export function requireAdmin(ctx: AppContext): onRequestHookHandler {
   return async (request, reply) => {
     if (!hasAdminSession(ctx, request, reply)) throw unauthorized();
   };

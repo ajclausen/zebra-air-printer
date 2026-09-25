@@ -72,7 +72,7 @@ export function designRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   app.post<{ Params: IdParams }>(
     '/api/designs/:id/restore',
-    { schema: { params: idParams }, preHandler: requireAdmin(ctx) },
+    { schema: { params: idParams }, onRequest: requireAdmin(ctx) },
     async (request) => {
       const design = designs.restore(request.params.id);
       if (!design) throw notFound('Design');

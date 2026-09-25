@@ -154,12 +154,17 @@ describe('printing through LPrint (fake IPP server)', () => {
   });
 
   it('accepts bodies above the default 1 MB limit', async () => {
-    const images = Array.from({ length: 40 }, () => labelDataUrl({ pixel: (x, y) => ((x ^ y) & 1 ? [0, 0, 0, 255] : [255, 255, 255, 255]) }));
+    // Pseudo-random noise compresses badly, so two images exceed 1 MB.
+    const noise = (x: number, y: number): [number, number, number, number] => {
+      const v = ((x * 73856093) ^ (y * 19349663)) & 0xff;
+      return [v, (v * 7) & 0xff, (v * 13) & 0xff, 255];
+    };
+    const images = [labelDataUrl({ pixel: noise }), labelDataUrl({ pixel: noise })];
     const payload = { name: 'many', images, copies: 1 };
     expect(JSON.stringify(payload).length).toBeGreaterThan(1024 * 1024);
     const res = await t.app.inject({ method: 'POST', url: '/api/print', payload });
     expect(res.statusCode).toBe(200);
-    expect(res.json<PrintResponse>().jobIds).toHaveLength(40);
+    expect(res.json<PrintResponse>().jobIds).toHaveLength(2);
   });
 
   it('reports printer refusals and removes the history entry when nothing printed', async () => {

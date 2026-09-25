@@ -87,6 +87,8 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
   const ctx = createContext(options);
 
   await app.register(fastifyCookie);
+  // JSON only: text/plain is a "simple" CORS content type a cross-site form could send.
+  app.removeContentTypeParser('text/plain');
   registerErrorHandling(app);
 
   app.addHook('onRequest', async (request) => {

@@ -76,7 +76,7 @@ export function adminRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   app.post<{ Body: { current: string; next: string } }>(
     '/api/admin/password',
-    { schema: { body: changePasswordBody }, preHandler: [admin, limited] },
+    { schema: { body: changePasswordBody }, onRequest: admin, preHandler: limited },
     async (request, reply) => {
       const ok = await auth.changePassword(request.body.current, request.body.next, request.cookies[SESSION_COOKIE]!);
       if (!ok) throw new HttpError(403, 'invalid_password', 'Current password is wrong');
@@ -90,7 +90,7 @@ export function adminRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   app.put<{ Body: StudioSettings }>(
     '/api/admin/settings',
-    { schema: { body: settingsBody }, preHandler: admin },
+    { schema: { body: settingsBody }, onRequest: admin },
     async (request) => {
       const saved = settings.save({ ...request.body, studioName: request.body.studioName.trim() || 'ECO Label Studio' });
       ctx.retention.prune().catch((err: unknown) => app.log.error({ err }, 'retention prune failed'));
@@ -102,7 +102,7 @@ export function adminRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   app.put<{ Body: PrinterSettingsInput }>(
     '/api/admin/printer',
-    { schema: { body: printerSettingsBody }, preHandler: admin },
+    { schema: { body: printerSettingsBody }, onRequest: admin },
     async (request) => {
       try {
         await printer.configure(request.body);
@@ -117,11 +117,11 @@ export function adminRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   // --- System ----------------------------------------------------------------
 
-  app.get('/api/admin/system', { preHandler: admin }, async () => systemInfo.collect());
+  app.get('/api/admin/system', { onRequest: admin }, async () => systemInfo.collect());
 
   app.post<{ Params: { name: ServiceName } }>(
     '/api/admin/services/:name/restart',
-    { schema: { params: serviceParams }, preHandler: admin },
+    { schema: { params: serviceParams }, onRequest: admin },
     async (request, reply) => {
       const { name } = request.params;
       request.log.warn({ service: name }, 'admin requested service restart');
@@ -141,7 +141,7 @@ export function adminRoutes(app: FastifyInstance, ctx: AppContext): void {
     },
   );
 
-  app.post('/api/admin/reboot', { preHandler: admin }, async (request, reply) => {
+  app.post('/api/admin/reboot', { onRequest: admin }, async (request, reply) => {
     request.log.warn('admin requested reboot');
     afterResponse('reboot', () => systemControl.reboot());
     return reply.code(202).send();
@@ -149,7 +149,7 @@ export function adminRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   app.get<{ Querystring: { unit: LogUnit; lines: number } }>(
     '/api/admin/logs',
-    { schema: { querystring: logsQuery }, preHandler: admin },
+    { schema: { querystring: logsQuery }, onRequest: admin },
     async (request) => {
       try {
         return { lines: await systemControl.logs(request.query.unit, request.query.lines) };

@@ -11,7 +11,7 @@ import { IppClient } from './ipp/client.js';
 import { FakePrinter } from './printer/fake-printer.js';
 import { IppPrinter } from './printer/ipp-printer.js';
 import type { Printer } from './printer/printer.js';
-import { createRedirectHandler, loadTls, mainServerFactory } from './server.js';
+import { createRedirectHandler, loadTls, mainServerFactory, reloadTls } from './server.js';
 import { readText, runCommand } from './system/exec.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -101,13 +101,15 @@ async function main(): Promise<void> {
 
   process.on('SIGHUP', () => {
     if (!tls) return;
-    const next = loadTls(config.tlsDir);
-    if (!next) {
-      app.log.error('SIGHUP: TLS files missing; keeping the current certificate');
-      return;
+    try {
+      if (reloadTls(app.server as unknown as https.Server, config.tlsDir)) {
+        app.log.info('SIGHUP: TLS certificate reloaded');
+      } else {
+        app.log.error('SIGHUP: TLS files missing; keeping the current certificate');
+      }
+    } catch (err) {
+      app.log.error({ err }, 'SIGHUP: TLS reload failed; keeping the current certificate');
     }
-    (app.server as unknown as https.Server).setSecureContext({ key: next.key, cert: next.cert });
-    app.log.info('SIGHUP: TLS certificate reloaded');
   });
 
   let shuttingDown = false;
