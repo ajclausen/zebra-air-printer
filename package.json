@@ -1,0 +1,15 @@
+{
+  "name": "eco-label-studio",
+  "private": true,
+  "type": "module",
+  "workspaces": ["shared", "server", "web"],
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "build": "npm run build -w shared && npm run build -w server && npm run build -w web",
+    "test": "npm test -w shared --if-present && npm test -w server && npm test -w web --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:server": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "deploy": "bash deploy/deploy.sh"
+  }
+}
