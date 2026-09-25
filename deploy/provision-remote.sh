@@ -6,8 +6,8 @@
 #   sudo deploy/provision-remote.sh [SRC_DIR]
 #   deploy/provision-remote.sh --patch-health-only
 #
-# SRC_DIR holds eco-studio.service, eco-studio-tls and 50-eco-studio.rules and
-# defaults to this script's directory. --patch-health-only runs only the
+# SRC_DIR holds eco-studio.service, eco-studio-tls.service, eco-studio-tls.timer,
+# eco-studio-tls and 50-eco-studio.rules, and defaults to this script's directory. --patch-health-only runs only the
 # eco-printer-health patch step (target overridable with ECO_HEALTH_SCRIPT),
 # which makes that step testable on any machine. Safe to re-run.
 set -euo pipefail
@@ -67,8 +67,9 @@ EOF
 
 # Insert the studio check into eco-printer-health, right before the
 # "# 4. Keep a known-good copy" section. Idempotent: does nothing if the
-# marker is already present. Returns non-zero without touching the file if
-# the anchor line is missing.
+# marker is already present. Never fails provisioning: if the script is
+# missing, has no anchor line, or the result doesn't parse, it warns and
+# leaves the file untouched.
 patch_health_script() {
   local target="${ECO_HEALTH_SCRIPT:-/usr/local/sbin/eco-printer-health}"
   local tmp backup
@@ -82,9 +83,8 @@ patch_health_script() {
     return 0
   fi
   if ! grep -q "$HEALTH_ANCHOR_RE" "$target"; then
-    printf 'error: %s has no line matching "%s"; not patching it. Add the studio check by hand (see deploy/provision-remote.sh).\n' \
-      "$target" "$HEALTH_ANCHOR_RE" >&2
-    return 1
+    warn "$target has no line matching '$HEALTH_ANCHOR_RE'; not patching it. Add the studio check by hand (see health_block in deploy/provision-remote.sh)."
+    return 0
   fi
 
   tmp="$(mktemp "$(dirname "$target")/.eco-printer-health.XXXXXX")"
@@ -103,8 +103,14 @@ patch_health_script() {
     { print }
   ' "$target" >"$tmp"
 
-  grep -qF "$HEALTH_MARKER" "$tmp" || die "awk did not insert the studio check into $tmp"
-  bash -n "$tmp" || die "patched health script fails bash -n; left $target unchanged"
+  if ! grep -qF "$HEALTH_MARKER" "$tmp"; then
+    warn "awk did not insert the studio check; left $target unchanged"
+    return 0
+  fi
+  if ! bash -n "$tmp"; then
+    warn "patched health script fails bash -n; left $target unchanged"
+    return 0
+  fi
 
   backup="$target.bak-$(date -u +%Y%m%dT%H%M%SZ)"
   cp -p "$target" "$backup"
@@ -218,13 +224,15 @@ ensure_dirs() {
 
 install_files() {
   local src=$1 f
-  for f in eco-studio.service eco-studio-tls 50-eco-studio.rules; do
+  for f in eco-studio.service eco-studio-tls.service eco-studio-tls.timer eco-studio-tls 50-eco-studio.rules; do
     [[ -f "$src/$f" ]] || die "missing $src/$f"
   done
 
-  install -m 0644 -o root -g root "$src/eco-studio.service" /etc/systemd/system/eco-studio.service
+  for f in eco-studio.service eco-studio-tls.service eco-studio-tls.timer; do
+    install -m 0644 -o root -g root "$src/$f" "/etc/systemd/system/$f"
+  done
   install -m 0755 -o root -g root "$src/eco-studio-tls" /usr/local/sbin/eco-studio-tls
-  log "Installed /etc/systemd/system/eco-studio.service and /usr/local/sbin/eco-studio-tls"
+  log "Installed eco-studio.service, eco-studio-tls.service and eco-studio-tls.timer in /etc/systemd/system, and /usr/local/sbin/eco-studio-tls"
 
   if [[ ! -x /usr/lib/polkit-1/polkitd ]]; then
     log "Installing polkitd"
@@ -242,6 +250,8 @@ install_files() {
 enable_service() {
   systemctl daemon-reload
   systemctl enable eco-studio.service
+  systemctl enable --now eco-studio-tls.timer
+  log "Enabled eco-studio.service and eco-studio-tls.timer"
   if [[ -f "$CURRENT_DIR/server/dist/main.js" ]]; then
     log "Restarting eco-studio"
     systemctl restart eco-studio || warn "eco-studio failed to restart; see journalctl -u eco-studio"
@@ -257,6 +267,7 @@ summary() {
   echo "  user:    $(id "$SERVICE_USER")"
   echo "  enabled: $(systemctl is-enabled eco-studio 2>/dev/null || true)"
   echo "  active:  $(systemctl is-active eco-studio 2>/dev/null || true)"
+  echo "  tls timer: $(systemctl is-enabled eco-studio-tls.timer 2>/dev/null || true)"
 }
 
 main() {
@@ -285,8 +296,10 @@ main() {
   ensure_user
   ensure_dirs
   install_files "$src_dir"
-  patch_health_script
+  # Enable first: the health check only looks at eco-studio once it is enabled,
+  # and a failed patch must not leave the service disabled.
   enable_service
+  patch_health_script
   summary
 }
 

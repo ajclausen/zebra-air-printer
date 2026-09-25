@@ -1,0 +1,12 @@
+[Unit]
+Description=Renew the ECO Label Studio TLS certificate if needed
+Documentation=file:///usr/local/sbin/eco-studio-tls
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=ECO_TLS_DIR=/var/lib/eco-studio/tls
+# --reload sends SIGHUP to eco-studio (systemctl reload) only when a new leaf
+# was installed and eco-studio is active.
+ExecStart=/usr/local/sbin/eco-studio-tls --reload

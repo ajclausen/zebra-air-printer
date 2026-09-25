@@ -1,0 +1,7 @@
+#!/bin/sh
+# `hostname -I` prints $FAKE_IPS; fails when it is unset, like macOS.
+if [ "${1:-}" = "-I" ] && [ -n "${FAKE_IPS:-}" ]; then
+  echo "$FAKE_IPS"
+  exit 0
+fi
+exit 1

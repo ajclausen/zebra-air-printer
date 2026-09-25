@@ -1,0 +1,17 @@
+#!/bin/sh
+# Pass-through to the real openssl ($ECO_TEST_REAL_OPENSSL) that can be told
+# to fail leaf signing (ECO_TEST_FAIL_SIGN=1) or verification
+# (ECO_TEST_FAIL_VERIFY=1).
+if [ "${ECO_TEST_FAIL_SIGN:-}" = 1 ] && [ "$1" = x509 ]; then
+  for a in "$@"; do
+    if [ "$a" = -CAkey ]; then
+      echo "fake openssl: signing disabled for this test" >&2
+      exit 1
+    fi
+  done
+fi
+if [ "${ECO_TEST_FAIL_VERIFY:-}" = 1 ] && [ "$1" = verify ]; then
+  echo "fake openssl: verify disabled for this test" >&2
+  exit 2
+fi
+exec "$ECO_TEST_REAL_OPENSSL" "$@"

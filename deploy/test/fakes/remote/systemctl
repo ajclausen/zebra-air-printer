@@ -1,0 +1,40 @@
+#!/bin/sh
+# Fake systemctl for deploy-remote.sh tests. Logs calls to $SIM/systemctl.log.
+# restart/start run a stand-in app (app.cjs) that keeps the database open in
+# WAL mode, like the real server. restart bumps the schema version
+# (PRAGMA user_version) when $SIM/MIGRATE exists. stop kills the app with
+# SIGKILL so its WAL is left behind, as after a crash.
+echo "$*" >>"$SIM/systemctl.log"
+DB="$SIM/data/studio.db"
+
+app_stop() {
+  if [ -f "$SIM/app.pid" ]; then
+    kill -9 "$(cat "$SIM/app.pid")" 2>/dev/null
+    rm -f "$SIM/app.pid"
+    sleep 0.2
+  fi
+}
+
+app_start() {
+  [ -f "$DB" ] || return 0
+  release=$(basename "$(readlink "$SIM/opt/eco-studio/current" 2>/dev/null || echo none)")
+  rm -f "$SIM/app.ready"
+  node --no-warnings "$(dirname "$0")/../app.cjs" "$DB" "$1" "$release" "$SIM/app.ready" \
+    </dev/null >>"$SIM/app.log" 2>&1 &
+  echo $! >"$SIM/app.pid"
+  i=0
+  while [ ! -f "$SIM/app.ready" ] && [ $i -lt 100 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+}
+
+case "$1" in
+  restart)
+    app_stop
+    if [ -f "$SIM/MIGRATE" ]; then app_start 1; else app_start 0; fi
+    ;;
+  start) app_start 0 ;;
+  stop) app_stop ;;
+esac
+exit 0

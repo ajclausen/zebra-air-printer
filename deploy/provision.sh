@@ -3,7 +3,7 @@
 #
 #   deploy/provision.sh [HOST]      (default HOST: ajclausen@192.168.51.242)
 #
-# Copies the unit, TLS helper, polkit rule and provision-remote.sh to a temp
+# Copies the units, TLS helper, polkit rule and provision-remote.sh to a temp
 # dir on the host and runs provision-remote.sh there with sudo. Safe to re-run.
 set -euo pipefail
 
@@ -35,7 +35,7 @@ esac
 
 HOST="${1:-$DEFAULT_HOST}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FILES=(eco-studio.service eco-studio-tls 50-eco-studio.rules provision-remote.sh)
+FILES=(eco-studio.service eco-studio-tls.service eco-studio-tls.timer eco-studio-tls 50-eco-studio.rules provision-remote.sh)
 
 log() { printf '==> %s\n' "$*"; }
 die() {

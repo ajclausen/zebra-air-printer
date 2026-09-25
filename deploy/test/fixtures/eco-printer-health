@@ -1,0 +1,70 @@
+#!/bin/bash
+# eco-printer health check, run every minute by eco-printer-health.timer.
+# Each check tolerates a few failures, then acts with exponential backoff
+# (first, 2x first, 4x first ... capped) so a persistent problem never causes
+# a restart storm.
+set -u
+STATE=/run/eco-printer-health
+mkdir -p "$STATE"
+now=$(date +%s)
+log() { echo "eco-printer-health: $*"; }
+
+# State file per check: "FAILS NEXT_ACTION_EPOCH BACKOFF_SECONDS".
+read_state() {
+  fails=0 next=0 backoff=0
+  [ -s "$STATE/$1" ] && read -r fails next backoff < "$STATE/$1"
+}
+
+# record_fail NAME THRESHOLD FIRST_BACKOFF MAX_BACKOFF ACTION...
+record_fail() {
+  local name=$1 threshold=$2 first=$3 max=$4; shift 4
+  read_state "$name"
+  fails=$((fails + 1))
+  if [ "$fails" -ge "$threshold" ] && [ "$now" -ge "$next" ]; then
+    backoff=$(( backoff == 0 ? first : backoff * 2 ))
+    [ "$backoff" -gt "$max" ] && backoff=$max
+    next=$((now + backoff))
+    log "$name failing ($fails checks); running: $*; next attempt in ${backoff}s at the earliest"
+    "$@" || log "$name: action failed"
+  fi
+  echo "$fails $next $backoff" > "$STATE/$name"
+}
+
+record_ok() {
+  read_state "$1"
+  [ "$fails" -gt 0 ] && log "$1 recovered after $fails failed checks"
+  echo "0 0 0" > "$STATE/$1"
+}
+
+# 1. Network: default gateway reachable.
+gw=$(ip -4 route show default | awk "{print \$3; exit}")
+if [ -n "$gw" ] && ping -c 2 -W 2 "$gw" >/dev/null 2>&1; then
+  record_ok network
+else
+  record_fail network 3 120 3600 systemctl restart NetworkManager
+fi
+
+# 2. LPrint answers IPP and has a printer configured.
+lprint_ok=0
+if timeout 15 lprint printers -u ipp://localhost:8000/ipp/system 2>/dev/null | grep -q .; then
+  lprint_ok=1
+  record_ok lprint
+else
+  record_fail lprint 3 60 1800 systemctl restart lprint
+fi
+
+# 3. Printer is advertised over Bonjour on the LAN (what AirPrint clients see).
+if [ "$lprint_ok" = 1 ]; then
+  if timeout 20 avahi-browse -rtp _ipp._tcp 2>/dev/null | grep "^=;" | grep -v ";lo;" | grep -q ";$(hostname).local;"; then
+    record_ok advertise
+  else
+    record_fail advertise 3 60 1800 sh -c "systemctl restart avahi-daemon && sleep 5 && systemctl restart lprint"
+  fi
+fi
+
+# 4. Keep a known-good copy of the LPrint config for eco-printer-prestart.
+CONF=/etc/lprint.conf GOLDEN=/etc/lprint.conf.golden
+if [ "$lprint_ok" = 1 ] && grep -q "^<Printer " "$CONF" && grep -q "^</Printer>" "$CONF" && ! cmp -s "$CONF" "$GOLDEN"; then
+  cp "$CONF" "$GOLDEN.tmp" && mv "$GOLDEN.tmp" "$GOLDEN" && log "refreshed $GOLDEN"
+fi
+exit 0

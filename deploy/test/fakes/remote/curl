@@ -1,0 +1,7 @@
+#!/bin/sh
+# Fake health endpoint: fails while $SIM/FAIL_HEALTH exists.
+if [ -f "$SIM/FAIL_HEALTH" ]; then
+  sleep 0.2
+  exit 7
+fi
+echo '{"ok":true,"version":"test"}'

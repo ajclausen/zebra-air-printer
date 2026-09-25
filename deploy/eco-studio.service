@@ -41,7 +41,8 @@ RestartSec=2s
 RestartSteps=8
 RestartMaxDelaySec=5min
 KillSignal=SIGTERM
-TimeoutStopSec=15s
+# On SIGTERM the server waits up to 15s for in-flight prints before exiting.
+TimeoutStopSec=30s
 
 # Sandboxing.
 # ProtectSystem=strict mounts the whole filesystem read-only for this service
@@ -66,9 +67,19 @@ ReadWritePaths=/var/lib/eco-studio
 # and nmcli needs D-Bus.
 NoNewPrivileges=yes
 ProtectKernelTunables=yes
+ProtectKernelModules=yes
 ProtectControlGroups=yes
+ProtectHostname=yes
+# ProtectClock also implies DeviceAllow=char-rtc r, which limits device access
+# to that plus the standard pseudo devices (/dev/null, /dev/urandom, ...). The
+# app talks to the printer over IPP, not a device node, so that is fine.
+ProtectClock=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
+SystemCallArchitectures=native
+# MemoryDenyWriteExecute stays off: the V8 JIT needs writable+executable memory.
 
 [Install]
 WantedBy=multi-user.target

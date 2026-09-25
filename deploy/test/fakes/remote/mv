@@ -1,0 +1,6 @@
+#!/bin/sh
+# GNU `mv -T SRC DST` for macOS: rename(2) without following a symlinked DST.
+if [ "$1" = "-T" ]; then
+  exec perl -e 'rename($ARGV[0], $ARGV[1]) or die "mv -T: $!\n"' "$2" "$3"
+fi
+exec /bin/mv "$@"

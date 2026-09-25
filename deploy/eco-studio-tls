@@ -1,16 +1,26 @@
 #!/usr/bin/env bash
 # Maintain the local CA and the server certificate for ECO Label Studio.
 #
-# Runs as root from ExecStartPre=+ in eco-studio.service, so it is checked on
-# every service start. Safe to run by hand at any time; it only changes files
-# when something needs doing.
+#   eco-studio-tls            check and, if needed, (re)issue certificates
+#   eco-studio-tls --reload   same, then `systemctl reload eco-studio` if a new
+#                             leaf was installed and the service is active
+#
+# Runs as root from ExecStartPre=+ in eco-studio.service on every start, and
+# daily with --reload from eco-studio-tls.timer. Safe to run by hand; it only
+# changes files when something needs doing.
 #
 # Files in $ECO_TLS_DIR:
-#   ca.key, ca.crt    local CA (created once, never regenerated)
+#   ca.key, ca.crt    local CA. Replaced only when missing, unreadable,
+#                     mismatched, or within 30 days of expiry.
 #   server.key        leaf private key
 #   leaf.crt          leaf certificate only
 #   server.crt        leaf certificate followed by ca.crt (what the server sends)
 #   leaf-ips.txt      IPv4 addresses the current leaf was issued for
+#
+# Exit status: 0 whenever a matching server.crt/server.key pair is on disk at
+# the end, even if something failed along the way (the failure is logged).
+# Non-zero only when no usable pair exists. A certificate problem must never
+# stop the web app from starting.
 #
 # Environment overrides (used for local testing):
 #   ECO_TLS_DIR    default /var/lib/eco-studio/tls
@@ -32,6 +42,67 @@ die() {
   printf 'eco-studio-tls: error: %s\n' "$*" >&2
   exit 1
 }
+
+RELOAD=0
+case "${1:-}" in
+  "") ;;
+  --reload) RELOAD=1 ;;
+  -h | --help)
+    sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'
+    exit 0
+    ;;
+  *)
+    echo "usage: eco-studio-tls [--reload]" >&2
+    exit 2
+    ;;
+esac
+
+# True if the key's public key equals the (first) certificate's public key.
+key_matches_cert() {
+  local key=$1 cert=$2 kpub cpub
+  kpub="$(openssl pkey -in "$key" -pubout 2>/dev/null)" || return 1
+  cpub="$(openssl x509 -in "$cert" -noout -pubkey 2>/dev/null)" || return 1
+  [[ -n "$kpub" && "$kpub" == "$cpub" ]]
+}
+
+# A pair the server can start with: both files present and matching.
+pair_usable() {
+  [[ -s "$TLS_DIR/server.crt" && -s "$TLS_DIR/server.key" ]] || return 1
+  # Without openssl we cannot check; trust what is there.
+  command -v openssl >/dev/null 2>&1 || return 0
+  key_matches_cert "$TLS_DIR/server.key" "$TLS_DIR/server.crt"
+}
+
+# Any failure ends here. Turn it into exit 0 if the server can still start.
+WORK=""
+finish() {
+  local rc=$?
+  if [[ -n "$WORK" ]]; then rm -rf "$WORK"; fi
+  if [[ $rc -ne 0 ]]; then
+    if pair_usable; then
+      warn "failed (status $rc); keeping the existing server certificate so eco-studio can start"
+      exit 0
+    fi
+    printf 'eco-studio-tls: error: failed (status %s) and no usable server.crt/server.key pair exists\n' "$rc" >&2
+    exit "$rc"
+  fi
+}
+trap finish EXIT
+
+# The daily timer and a service restart can overlap; run one at a time. The
+# wait stays under the default 90s start timeout of eco-studio.service.
+# flock exists on Debian (util-linux); skip locking where it doesn't (macOS).
+if [[ -z "${ECO_TLS_LOCKED:-}" ]] && command -v flock >/dev/null 2>&1; then
+  mkdir -p "$TLS_DIR"
+  export ECO_TLS_LOCKED=1
+  rc=0
+  flock -E 75 -w 60 "$TLS_DIR/.lock" "$BASH" "$0" "$@" || rc=$?
+  if [[ $rc -eq 75 ]]; then
+    warn "timed out waiting for $TLS_DIR/.lock"
+    exit 1 # finish() turns this into 0 if a usable pair exists
+  fi
+  exit "$rc"
+fi
 
 command -v openssl >/dev/null 2>&1 || die "openssl not found"
 
@@ -57,7 +128,7 @@ set_owner "$TLS_DIR"
 cd "$TLS_DIR"
 
 # Repair modes and ownership of existing files. Quiet and idempotent.
-for f in ca.key server.key; do
+for f in ca.key server.key ca.key.replaced-* ; do
   if [[ -f "$f" ]]; then chmod 0600 "$f" && set_owner "$f"; fi
 done
 for f in ca.crt leaf.crt server.crt leaf-ips.txt; do
@@ -70,8 +141,6 @@ rm -rf "$TLS_DIR"/.work.*
 # All new files are built in a work dir inside TLS_DIR so the final mv is an
 # atomic rename on the same filesystem.
 WORK="$(mktemp -d "$TLS_DIR/.work.XXXXXX")"
-cleanup() { rm -rf "$WORK"; }
-trap cleanup EXIT
 
 gen_ec_key() {
   local out=$1
@@ -119,10 +188,31 @@ EOF
 
 # --- CA -------------------------------------------------------------------
 
+ca_problem=""
+if [[ ! -s ca.key && ! -s ca.crt ]]; then
+  ca_problem="none"
+elif [[ ! -s ca.key || ! -s ca.crt ]]; then
+  ca_problem="ca.key or ca.crt is missing"
+elif ! openssl x509 -in ca.crt -noout >/dev/null 2>&1; then
+  ca_problem="ca.crt cannot be read"
+elif ! key_matches_cert ca.key ca.crt; then
+  ca_problem="ca.key does not match ca.crt"
+elif ! openssl x509 -in ca.crt -noout -checkend "$RENEW_SECONDS" >/dev/null; then
+  ca_problem="the CA has expired or expires within 30 days"
+fi
+
 ca_created=0
-if [[ ! -s ca.key || ! -s ca.crt ]]; then
-  if [[ -e ca.key || -e ca.crt ]]; then
-    warn "incomplete CA (ca.key or ca.crt missing); creating a new CA"
+if [[ -n "$ca_problem" ]]; then
+  if [[ "$ca_problem" != "none" ]]; then
+    stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    warn "=================================================================="
+    warn "REPLACING THE LOCAL CA: $ca_problem."
+    warn "Every device that trusted the old CA must download and trust the"
+    warn "new one from http://eco-printer.local/ca.crt."
+    warn "Old files are kept as ca.key.replaced-$stamp and ca.crt.replaced-$stamp."
+    warn "=================================================================="
+    if [[ -e ca.key ]]; then mv -f ca.key "ca.key.replaced-$stamp"; fi
+    if [[ -e ca.crt ]]; then mv -f ca.crt "ca.crt.replaced-$stamp"; fi
   fi
   write_req_config "$WORK/ca.cnf" "$CA_SUBJECT_CN"
   cat >>"$WORK/ca.cnf" <<'EOF'
@@ -144,9 +234,6 @@ EOF
   mv -f "$WORK/ca.crt" ca.crt
   ca_created=1
   log "created local CA (valid $CA_DAYS days): $(openssl x509 -in ca.crt -noout -fingerprint -sha256)"
-elif ! openssl x509 -in ca.crt -noout -checkend "$RENEW_SECONDS" >/dev/null; then
-  # Replacing the CA would force every device to re-trust, so only warn.
-  warn "local CA expires within 30 days; delete ca.key and ca.crt to create a new one"
 fi
 
 # --- Leaf -----------------------------------------------------------------
@@ -160,7 +247,9 @@ elif [[ ! -s server.key || ! -s server.crt || ! -s leaf.crt ]]; then
   reason="leaf key or certificate missing"
 elif [[ ! -f leaf-ips.txt ]]; then
   reason="leaf-ips.txt missing"
-elif ! openssl x509 -in leaf.crt -noout -checkend "$RENEW_SECONDS" >/dev/null; then
+elif ! key_matches_cert server.key server.crt; then
+  reason="server.key does not match server.crt"
+elif ! openssl x509 -in leaf.crt -noout -checkend "$RENEW_SECONDS" >/dev/null 2>&1; then
   reason="leaf certificate expires within 30 days"
 elif [[ "$(cat leaf-ips.txt)" != "$IPS" ]]; then
   reason="IPv4 addresses changed from '$(cat leaf-ips.txt)' to '$IPS'"
@@ -200,7 +289,9 @@ if ! openssl x509 -req -sha256 -days "$LEAF_DAYS" \
   die "signing the leaf certificate failed"
 fi
 openssl verify -CAfile ca.crt "$WORK/leaf.crt" >/dev/null ||
-  die "newly issued leaf certificate does not verify against ca.crt"
+  die "newly issued leaf certificate does not verify against ca.crt; not installing it"
+key_matches_cert "$WORK/server.key" "$WORK/leaf.crt" ||
+  die "newly issued leaf certificate does not match its key; not installing it"
 
 cat "$WORK/leaf.crt" ca.crt >"$WORK/server.crt"
 printf '%s\n' "$IPS" >"$WORK/leaf-ips.txt"
@@ -209,11 +300,24 @@ chmod 0600 "$WORK/server.key"
 chmod 0644 "$WORK/leaf.crt" "$WORK/server.crt" "$WORK/leaf-ips.txt"
 set_owner "$WORK/server.key" "$WORK/leaf.crt" "$WORK/server.crt" "$WORK/leaf-ips.txt"
 
-# Key first, then certificates. leaf-ips.txt goes last so an interrupted run
-# is detected and redone on the next start.
+# Key first, then certificates. Separate files cannot be swapped in one step;
+# the "does not match" check above re-issues if a run dies in between.
+# leaf-ips.txt goes last so an interrupted run is redone on the next start.
 mv -f "$WORK/server.key" server.key
 mv -f "$WORK/leaf.crt" leaf.crt
 mv -f "$WORK/server.crt" server.crt
 mv -f "$WORK/leaf-ips.txt" leaf-ips.txt
 
 log "issued leaf certificate for $SAN ($(openssl x509 -in leaf.crt -noout -enddate))"
+
+if [[ $RELOAD -eq 1 ]]; then
+  if systemctl is-active --quiet eco-studio 2>/dev/null; then
+    if systemctl reload eco-studio; then
+      log "reloaded eco-studio"
+    else
+      warn "systemctl reload eco-studio failed; the new certificate is used after the next restart"
+    fi
+  else
+    log "eco-studio is not active; not reloading"
+  fi
+fi

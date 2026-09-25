@@ -1,0 +1,6 @@
+#!/bin/sh
+# Fake npm ci: links the @eco/shared workspace the way npm does, so the real
+# `await import('@eco/shared')` check in deploy-remote.sh runs.
+echo "npm $*" >>"$SIM/npm.log"
+mkdir -p node_modules/@eco
+ln -sfn ../../shared node_modules/@eco/shared

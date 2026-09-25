@@ -1,0 +1,8 @@
+#!/bin/sh
+# Logs calls to $FAKE_SYSTEMCTL_LOG. is-active succeeds when FAKE_ACTIVE=1.
+echo "$*" >>"$FAKE_SYSTEMCTL_LOG"
+if [ "$1" = is-active ]; then
+  [ "${FAKE_ACTIVE:-0}" = 1 ]
+  exit $?
+fi
+exit 0

@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily ECO Label Studio TLS certificate check
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+# Run at the next boot if the Pi was off when the timer was due.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

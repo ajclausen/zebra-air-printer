@@ -1,0 +1,10 @@
+#!/bin/sh
+# Fake runuser: drop everything up to "--" and run the rest as the current user.
+# Fails while $SIM/FAIL_RUNUSER exists (simulates a failed database backup).
+if [ -f "$SIM/FAIL_RUNUSER" ]; then
+  echo "fake runuser: failing for this test" >&2
+  exit 1
+fi
+while [ $# -gt 0 ] && [ "$1" != "--" ]; do shift; done
+shift
+exec "$@"

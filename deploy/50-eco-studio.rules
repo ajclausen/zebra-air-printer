@@ -17,8 +17,11 @@ polkit.addRule(function (action, subject) {
         return;
     }
 
+    // reboot-multiple-sessions: someone is logged in over ssh.
+    // reboot-ignore-inhibit: a process holds a shutdown inhibitor lock.
     if (action.id == "org.freedesktop.login1.reboot" ||
-        action.id == "org.freedesktop.login1.reboot-multiple-sessions") {
+        action.id == "org.freedesktop.login1.reboot-multiple-sessions" ||
+        action.id == "org.freedesktop.login1.reboot-ignore-inhibit") {
         return polkit.Result.YES;
     }
 });
