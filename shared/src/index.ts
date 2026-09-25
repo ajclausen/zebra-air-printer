@@ -90,6 +90,8 @@ export interface PrintRequest {
   designId?: string | null;
   /** Optional free-text name of the person printing (remembered in the browser). */
   printedBy?: string | null;
+  /** 'import' for shipping labels imported from a PDF/image; defaults to 'studio'. */
+  source?: 'studio' | 'import';
 }
 
 export interface PrintResponse {
@@ -99,23 +101,44 @@ export interface PrintResponse {
 
 /** POST /api/print (PrintRequest) -> PrintResponse. Body limit 50 MB. */
 
+/**
+ * Where a history entry came from:
+ * - 'studio': printed from the designer.
+ * - 'import': a shipping label imported from a PDF/image in the Studio.
+ * - 'airprint': any job sent straight to LPrint (AirPrint/IPP from Macs, iPhones,
+ *   etc.). Recorded by the server from LPrint's job list; images come from the
+ *   bitmaps the patched LPrint driver captures while printing.
+ */
+export type HistorySource = 'studio' | 'import' | 'airprint';
+
+/** Final (or current) LPrint state of the entry's jobs; the worst state wins. */
+export type HistoryJobState = 'pending' | 'processing' | 'completed' | 'canceled' | 'aborted' | 'unknown';
+
 export interface HistoryEntry {
   id: string;
   name: string;
+  source: HistorySource;
+  state: HistoryJobState;
   designId: string | null;
+  /** Studio: the name typed by the user. AirPrint: the sender's account name from IPP (job-originating-user-name). */
   printedBy: string | null;
-  labelCount: number; // images.length
+  /** AirPrint only: sending host from IPP (job-originating-host-name), when LPrint reports it. */
+  host: string | null;
+  labelCount: number; // labels/pages printed per copy
   copies: number;
   jobIds: number[];
-  /** URL of the first label image, e.g. /api/history/:id/images/0.png */
-  previewUrl: string;
+  /** Number of stored label images (0 when none were captured, e.g. raw ZPL jobs). */
+  imageCount: number;
+  /** URL of the first label image, e.g. /api/history/:id/images/0.png, or null when imageCount is 0. */
+  previewUrl: string | null;
   createdAt: string;
 }
 
-/** GET /api/history?limit=50&before=<iso> -> HistoryEntry[] (newest first) */
+/** GET /api/history?limit=50&before=<iso>&source=studio|import|airprint -> HistoryEntry[] (newest first) */
 /** GET /api/history/:id/images/:index.png -> image/png */
 /**
- * POST /api/history/:id/reprint -> PrintResponse (re-sends stored images as a new history entry).
+ * POST /api/history/:id/reprint -> PrintResponse (re-sends stored images as a new history entry;
+ * 410 images_missing when imageCount is 0 or the images were pruned).
  * Optional body: ReprintRequest; omitted fields reuse the original entry's values.
  */
 /** DELETE /api/history/:id -> 204 (admin; removes the entry and its stored images) */
