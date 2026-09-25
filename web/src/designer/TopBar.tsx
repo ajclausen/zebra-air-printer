@@ -55,7 +55,9 @@ function DesignName() {
   const { name, dirty, designId } = useEditor(useShallow((s) => ({ name: s.meta.name, dirty: selectIsDirty(s), designId: s.meta.designId })));
   const [draft, setDraft] = useState(name);
   const inputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => setDraft(name), [name]);
+  useEffect(() => {
+    setDraft(name);
+  }, [name]);
   const commit = () => {
     const next = draft.trim() || UNTITLED;
     setDraft(next);

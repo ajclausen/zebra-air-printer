@@ -71,7 +71,7 @@ export function PreviewDialog({ doc, instances, copies = 1, onClose }: { doc: La
   const landscape = doc.orientation === 'landscape';
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-[min(1100px,calc(100vw-32px))] bg-surface">
+      <DialogContent className={instances.length > 1 ? 'max-w-[min(1100px,calc(100vw-32px))] bg-surface' : 'max-w-[560px] bg-surface'}>
         <DialogHeader>
           <DialogTitle>Print preview</DialogTitle>
           <DialogDescription>

@@ -97,8 +97,12 @@ export function Workspace({ children, onDropFiles }: { children?: React.ReactNod
     };
   }, []);
 
-  useEffect(() => controllerRef.current?.sync(doc), [doc]);
-  useEffect(() => controllerRef.current?.applySelection(selection), [selection]);
+  useEffect(() => {
+    controllerRef.current?.sync(doc);
+  }, [doc]);
+  useEffect(() => {
+    controllerRef.current?.applySelection(selection);
+  }, [selection]);
   useEffect(() => {
     if (container.width > 0 && container.height > 0) controllerRef.current?.setViewport({ ...container, ...viewport });
   }, [container, viewport]);

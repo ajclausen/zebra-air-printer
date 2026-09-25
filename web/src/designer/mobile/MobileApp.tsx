@@ -191,7 +191,9 @@ function Filler({ picked, onBack }: { picked: Picked; onBack: () => void }) {
 export function MobileApp() {
   const settings = useStudioSettings();
   const [picked, setPicked] = useState<Picked | null>(null);
-  useEffect(() => window.scrollTo(0, 0), [picked]);
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [picked]);
   return (
     <div className="min-h-full bg-surface">
       <header className="sticky top-0 z-10 flex h-14 items-center gap-2 border-b border-line bg-paper/95 px-4 backdrop-blur">

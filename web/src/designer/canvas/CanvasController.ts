@@ -89,6 +89,8 @@ export class CanvasController {
   private hovered: LabelObject | null = null;
   private editingHeight = new Map<string, number>();
   private pendingEdit: string | null = null;
+  /** Fabric fires object:modified right after editing ends; the text commit already covers it. */
+  private justExitedEditing: FabricObject | null = null;
   private disposed = false;
 
   constructor(element: HTMLCanvasElement, private readonly callbacks: CanvasCallbacks) {
@@ -124,6 +126,13 @@ export class CanvasController {
     const rect = this.canvas.upperCanvasEl.getBoundingClientRect();
     const { zoom, offsetX, offsetY } = this.viewport;
     return { x: (clientX - rect.left - offsetX) / zoom, y: (clientY - rect.top - offsetY) / zoom };
+  }
+
+  /** Convert label coordinates (dots) to a client (screen) point. */
+  sceneToClient(x: number, y: number): { x: number; y: number } {
+    const rect = this.canvas.upperCanvasEl.getBoundingClientRect();
+    const { zoom, offsetX, offsetY } = this.viewport;
+    return { x: rect.left + offsetX + x * zoom, y: rect.top + offsetY + y * zoom };
   }
 
   // -------------------------------------------------------------------------
@@ -371,6 +380,10 @@ export class CanvasController {
   }
 
   private onEditingExited(target: LabelTextbox & LabelObject): void {
+    this.justExitedEditing = target;
+    queueMicrotask(() => {
+      this.justExitedEditing = null;
+    });
     this.editingHeight.delete(target.elementId);
     const el = this.findElement(target.elementId);
     if (el?.type !== 'text') return;
@@ -381,7 +394,8 @@ export class CanvasController {
     }
     // Force a re-render from the element even if the text is unchanged (restores uppercase display).
     this.synced.delete(el.id);
-    if (text !== el.text) this.callbacks.commitPatches({ [el.id]: { text, ...this.readBack(target, el) } });
+    // Editing never moves the box: keep the element's position and let sync lay out the new text.
+    if (text !== el.text) this.callbacks.commitPatches({ [el.id]: { text } });
     else this.sync(this.callbacks.getDoc());
   }
 
@@ -436,7 +450,7 @@ export class CanvasController {
   }
 
   private onModified(target: FabricObject | undefined): void {
-    if (!target) return;
+    if (!target || target === this.justExitedEditing) return;
     const objs = target instanceof ActiveSelection ? target.getObjects() : [target];
     const patches: Record<string, Partial<LabelElement>> = {};
     for (const obj of objs) {

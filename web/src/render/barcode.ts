@@ -42,7 +42,8 @@ export interface BarcodeBitmap {
 /** bwip-js error messages look like "bwipp.ean13badLength: EAN-13 must be 12 or 13 digits". */
 function friendlyError(error: unknown, symbology: Symbology): string {
   const raw = error instanceof Error ? error.message : String(error);
-  const message = raw.replace(/^bwip(p|-js)\.[\w]+:\s*/, '').trim();
+  // Strip prefixes like "bwipp.ean13badLength#6878: " and "bwipjs: ".
+  const message = raw.replace(/^bwip(?:p|js|-js)(?:\.[\w#]+)?:\s*/, '').trim();
   return message ? `${SYMBOLOGIES[symbology].name}: ${message}` : `This data cannot be encoded as ${SYMBOLOGIES[symbology].name}.`;
 }
 
@@ -67,7 +68,9 @@ function drawLinear(bwip: Bwip, el: Pick<BarcodeElement, 'symbology' | 'moduleSi
 }
 
 function drawMatrix(bwip: Bwip, el: Pick<BarcodeElement, 'symbology' | 'moduleSize'>, data: string): HTMLCanvasElement {
-  const [symbol] = bwip.raw(el.symbology, data, '') as unknown as Array<{ pixs: number[]; pixx: number; pixy: number }>;
+  // The named `raw` export is the "raw" symbology; the matrix encoder is `default.raw` (ToRaw).
+  const toRaw = (bwip as unknown as { default: { raw: (bcid: string, text: string, opts: string) => unknown } }).default.raw;
+  const [symbol] = toRaw(el.symbology, data, '') as Array<{ pixs: number[]; pixx: number; pixy: number }>;
   if (!symbol) throw new Error('No symbol produced.');
   const module = Math.max(1, Math.round(el.moduleSize));
   const canvas = document.createElement('canvas');
