@@ -1,5 +1,5 @@
 import type { HistoryEntry } from '@eco/shared';
-import { RotateCcwIcon } from 'lucide-react';
+import { ImageIcon, RotateCcwIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/controls';
@@ -14,7 +14,11 @@ function HistoryRow({ entry }: { entry: HistoryEntry }) {
   return (
     <li className="flex items-center gap-3 rounded-lg p-1.5 hover:bg-ink/[0.04]">
       <div className="flex h-16 w-12 shrink-0 items-center justify-center rounded-md bg-desk/70 p-1">
-        <img src={entry.previewUrl} alt="" loading="lazy" className="max-h-full rounded-[2px] bg-paper shadow-[0_0_0_1px_rgb(24_26_31/0.08)]" />
+        {entry.previewUrl ? (
+          <img src={entry.previewUrl} alt="" loading="lazy" className="max-h-full rounded-[2px] bg-paper shadow-[0_0_0_1px_rgb(24_26_31/0.08)]" />
+        ) : (
+          <ImageIcon className="size-4 text-ink-4" aria-hidden />
+        )}
       </div>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium text-ink">{entry.name}</div>
