@@ -43,19 +43,28 @@ export interface PrintJobRequest {
   designId: string | null;
 }
 
+
+export interface PrintImagesRequest {
+  /** PNG data URLs, already 812 x 1218 pure black/white. */
+  images: string[];
+  copies: number;
+  name: string;
+  source: 'import';
+}
+
 export type PrintPhase = { kind: 'idle' } | { kind: 'rendering'; done: number; total: number } | { kind: 'sending'; total: number };
 
 /**
  * Render every label in the browser, send the bitmaps to the server, and
- * report progress with a single toast that updates in place.
+ * report progress with a single toast that updates in place. `printImages`
+ * sends labels that are already rendered (imported shipping labels).
  */
 export function usePrintJob() {
   const client = useQueryClient();
   const [phase, setPhase] = useState<PrintPhase>({ kind: 'idle' });
 
-  const print = useCallback(
-    async (request: PrintJobRequest): Promise<boolean> => {
-      const total = request.instances.length;
+  const run = useCallback(
+    async (total: number, copies: number, work: (toastId: string | number) => Promise<void>): Promise<boolean> => {
       if (total === 0) return false;
       if (total > MAX_LABELS_PER_JOB) {
         toast.error(`One print job can hold up to ${MAX_LABELS_PER_JOB} labels.`, { description: `This job has ${total}. Split it into smaller runs.` });
@@ -63,25 +72,11 @@ export function usePrintJob() {
       }
       const toastId = toast.loading(total > 1 ? `Preparing ${total} labels…` : 'Preparing label…');
       try {
-        setPhase({ kind: 'rendering', done: 0, total });
-        const labels = await renderPrintJob(request.doc, request.instances, (done) => {
-          setPhase({ kind: 'rendering', done, total });
-          if (total > 1) toast.loading(`Preparing labels… ${done} of ${total}`, { id: toastId });
-        });
-        setPhase({ kind: 'sending', total });
-        toast.loading('Sending to the printer…', { id: toastId });
-        const printedBy = getPrintedBy() || null;
-        await api.print({
-          name: request.name,
-          images: labels.map((l) => l.dataUrl),
-          copies: request.copies,
-          designId: request.designId,
-          printedBy,
-        });
-        const count = total * request.copies;
+        await work(toastId);
+        const count = total * copies;
         toast.success(`Sent ${pluralize(count, 'label')} to the printer`, {
           id: toastId,
-          description: total > 1 && request.copies > 1 ? `${total} different labels, ${request.copies} copies each.` : undefined,
+          description: total > 1 && copies > 1 ? `${total} different labels, ${copies} copies each.` : undefined,
         });
         return true;
       } catch (error) {
@@ -97,7 +92,47 @@ export function usePrintJob() {
     [client],
   );
 
-  return { print, phase, busy: phase.kind !== 'idle' };
+  const print = useCallback(
+    (request: PrintJobRequest): Promise<boolean> => {
+      const total = request.instances.length;
+      return run(total, request.copies, async (toastId) => {
+        setPhase({ kind: 'rendering', done: 0, total });
+        const labels = await renderPrintJob(request.doc, request.instances, (done) => {
+          setPhase({ kind: 'rendering', done, total });
+          if (total > 1) toast.loading(`Preparing labels… ${done} of ${total}`, { id: toastId });
+        });
+        setPhase({ kind: 'sending', total });
+        toast.loading('Sending to the printer…', { id: toastId });
+        await api.print({
+          name: request.name,
+          images: labels.map((l) => l.dataUrl),
+          copies: request.copies,
+          designId: request.designId,
+          printedBy: getPrintedBy() || null,
+        });
+      });
+    },
+    [run],
+  );
+
+  const printImages = useCallback(
+    (request: PrintImagesRequest): Promise<boolean> =>
+      run(request.images.length, request.copies, async (toastId) => {
+        setPhase({ kind: 'sending', total: request.images.length });
+        toast.loading('Sending to the printer…', { id: toastId });
+        await api.print({
+          name: request.name,
+          images: request.images,
+          copies: request.copies,
+          designId: null,
+          printedBy: getPrintedBy() || null,
+          source: request.source,
+        });
+      }),
+    [run],
+  );
+
+  return { print, printImages, phase, busy: phase.kind !== 'idle' };
 }
 
 /**

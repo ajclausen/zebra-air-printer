@@ -1,4 +1,5 @@
 import { useCallback, useEffect } from 'react';
+import { isPdf } from '@/import/prepare';
 import { useMediaQuery } from '@/lib/useMediaQuery';
 import { Workspace } from './canvas/Workspace';
 import { ImageDialog } from './dialogs/ImageDialog';
@@ -6,6 +7,7 @@ import { IconPickerDialog } from './dialogs/IconPickerDialog';
 import { QuickPreviewDialog } from './dialogs/PreviewDialog';
 import { PrintDialog } from './dialogs/PrintDialog';
 import { SaveDialog } from './dialogs/SaveDialog';
+import { ShippingLabelDialog } from './dialogs/ShippingLabelDialog';
 import { ShortcutsDialog } from './dialogs/ShortcutsDialog';
 import { useDialogs } from './dialogs';
 import { EmptyState } from './EmptyState';
@@ -33,7 +35,9 @@ function Editor() {
   }, [narrow]);
 
   const onDropFiles = useCallback((files: File[], point: { x: number; y: number }) => {
-    if (files[0]) useDialogs.getState().open('image', { file: files[0], at: point });
+    const pdf = files.find(isPdf);
+    if (pdf) useDialogs.getState().open('shippingLabel', { file: pdf });
+    else if (files[0]) useDialogs.getState().open('image', { file: files[0], at: point });
   }, []);
 
   return (
@@ -52,6 +56,7 @@ function Editor() {
       <IconPickerDialog />
       <ImageDialog />
       <ShortcutsDialog />
+      <ShippingLabelDialog />
     </div>
   );
 }

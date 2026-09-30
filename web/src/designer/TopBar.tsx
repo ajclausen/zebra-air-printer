@@ -7,6 +7,7 @@ import {
   LayoutTemplateIcon,
   MinusIcon,
   PlusIcon,
+  PackageIcon,
   PrinterIcon,
   Redo2Icon,
   RectangleHorizontalIcon,
@@ -283,6 +284,10 @@ export function TopBar() {
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => openDialog('print', { mode: 'single' })} disabled={!hasElements}>
                 <PrinterIcon /> Print with options…
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => openDialog('shippingLabel', { file: null })}>
+                <PackageIcon /> Print shipping label…
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

@@ -26,15 +26,19 @@ function quantityText(entry: HistoryEntry): string {
 function HistoryRow({ entry, busy, onReprint, onDelete }: { entry: HistoryEntry; busy: boolean; onReprint: () => void; onDelete: () => void }) {
   return (
     <li className="flex items-center gap-3 px-4 py-3 sm:gap-4">
-      <a
-        href={entry.previewUrl}
-        target="_blank"
-        rel="noreferrer"
-        aria-label={`Open the first label of ${entry.name}`}
-        className="shrink-0 rounded-[5px] outline-none focus-visible:ring-2 focus-visible:ring-cobalt"
-      >
-        <Thumbnail src={entry.previewUrl} className="h-[60px] w-10" />
-      </a>
+      {entry.previewUrl ? (
+        <a
+          href={entry.previewUrl}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={`Open the first label of ${entry.name}`}
+          className="shrink-0 rounded-[5px] outline-none focus-visible:ring-2 focus-visible:ring-cobalt"
+        >
+          <Thumbnail src={entry.previewUrl} className="h-[60px] w-10" />
+        </a>
+      ) : (
+        <Thumbnail src={null} className="h-[60px] w-10" />
+      )}
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium text-ink" title={entry.name}>
           {entry.name}

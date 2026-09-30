@@ -1,6 +1,6 @@
 # @eco/web
 
-The Label Studio front end: the designer at `/` and the admin console at `/admin`. Vite, React 19, Tailwind v4, Radix primitives, Fabric.js for the canvas, and bwip-js for barcodes. The API contract is `@eco/shared` (`shared/src/index.ts`).
+The Label Studio front end: the designer at `/` and the admin console at `/admin`. Vite, React 19, Tailwind v4, Radix primitives, Fabric.js for the canvas, bwip-js for barcodes, and pdf.js for importing carrier shipping labels. The API contract is `@eco/shared` (`shared/src/index.ts`).
 
 ## Development
 
@@ -18,7 +18,7 @@ The mock (`web/mock/`, enabled by `VITE_MOCK_API=1`) implements every route in t
 - `build`: production bundle in `web/dist` (builds `shared` first)
 - `test`: vitest unit tests for the pure modules
 - `typecheck`
-- `e2e`: Playwright smoke test against the mock (starts its own dev server on :5190)
+- `e2e`: Playwright tests against the mock (starts its own dev server on :5190): printing from the designer, and printing a shipping label from a generated carrier PDF
 - `node scripts/render-print-samples.mjs [url]`: renders every built-in template through the print pipeline into `screenshots/print-samples/` and fails if any image is not 812 x 1218 pure black and white
 - `node scripts/screenshots.mjs [url]`: designer screenshots into `screenshots/`
 - `node scripts/verify-real-server.mjs [url] [admin-password]`: end-to-end check against the real server
@@ -28,6 +28,7 @@ The mock (`web/mock/`, enabled by `VITE_MOCK_API=1`) implements every route in t
 - `src/doc/`: the document model (`types.ts`, format version and `migrate.ts`), element factories, pure edits (`operations.ts`), `{{variables}}`, batch expansion (sequence and CSV), fonts
 - `src/render/`: print pipeline. `bitmap.ts` (threshold, Floyd-Steinberg, rotation, final 812 x 1218 check) is pure; `objects.ts` turns elements into Fabric objects for both the editor and the print renderer; `print.ts` renders labels 1:1 offscreen and encodes PNGs; `barcode.ts` draws symbols at whole-dot module sizes
 - `src/designer/`: editor store (undo, autosave), canvas controller (Fabric sync, snapping, text editing), panels, properties, dialogs, the phone flow
+- `src/import/`: shipping label import. `detect.ts` (find the 4x6 label on a page, pick its rotation, compose the 812 x 1218 bitmap) is pure; `pdf.ts` is the only code that touches pdf.js; `prepare.ts` turns a PDF, PNG, or JPEG into print-ready labels
 - `src/admin/`: admin console
 - `src/templates/`: built-in templates and label symbols
 - `src/lib/api/`: typed client and TanStack Query hooks
@@ -35,5 +36,13 @@ The mock (`web/mock/`, enabled by `VITE_MOCK_API=1`) implements every route in t
 ## How printing works
 
 The editor document uses printer dots (812 x 1218 portrait, 1218 x 812 landscape). To print, each label is drawn 1:1 on an offscreen Fabric `StaticCanvas` with variables substituted, barcodes are regenerated from the substituted data at integer module sizes and placed on whole dots (quarter-turn rotation happens inside the bitmap, never by resampling), the result is thresholded at 50% luminance, landscape labels are rotated 90 degrees clockwise, and each label is sent as an 812 x 1218 PNG. The preview dialog shows these exact bitmaps.
+
+## Shipping labels
+
+Carriers hand out labels as a Letter page with the 4x6 label in one part and instructions in the rest. The shipping label dialog (Print menu, dropping a PDF on the designer, or the phone view's Shipping label button) renders each page with pdf.js at 100 dpi and builds an ink mask. It skips full-width fold rules and picks the block with the most ink that fits in 4x6. Landscape labels turn so the end with the most barcode detail lands at the bottom. The crop is then re-rendered from the PDF at 203 dpi (1:1, smaller only if it doesn't fit), thresholded, centered on 812 x 1218, and sent with `source: 'import'`. Rotate 180° covers a wrong guess; when nothing fits, the dialog says so and prints the page's content scaled to fit.
+
+pdf.js is loaded on first use. It fetches the standard 14 fonts (many carrier PDFs don't embed Helvetica or Courier) and its wasm decoders from `/pdfjs/`. A plugin in `vite.config.ts` serves them from `node_modules/pdfjs-dist` in dev and copies them to `dist/pdfjs/` in the build.
+
+## Document format
 
 Documents carry `formatVersion`. When the format changes, bump `DOCUMENT_FORMAT_VERSION` and add an upgrade step in `src/doc/migrate.ts`.

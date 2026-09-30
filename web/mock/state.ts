@@ -12,6 +12,7 @@ import type {
   DesignSummary,
   DesignVariable,
   HistoryEntry,
+  HistoryJobState,
   PrinterSettingsInput,
   PrinterState,
   PrinterStatus,
@@ -43,6 +44,7 @@ interface StoredJob {
 interface StoredHistoryEntry {
   id: string;
   name: string;
+  source: 'studio' | 'import';
   designId: string | null;
   printedBy: string | null;
   copies: number;
@@ -377,12 +379,16 @@ function validatePrintRequest(body: unknown): PrintRequest {
   }
   const designId = stringOrNullField(b.designId, 'designId');
   const printedBy = stringOrNullField(b.printedBy, 'printedBy');
+  if (b.source !== undefined && b.source !== 'studio' && b.source !== 'import') {
+    throw new HttpError(400, 'invalid_request', "source must be 'studio' or 'import'.");
+  }
   return {
     name: b.name,
     images: b.images as string[],
     copies: b.copies,
     designId,
     printedBy,
+    source: b.source,
   };
 }
 
@@ -708,6 +714,7 @@ function buildTestLabelPng(): Buffer {
 
 interface EnqueuePrintInput {
   name: string;
+  source: 'studio' | 'import';
   designId: string | null;
   printedBy: string | null;
   copies: number;
@@ -736,6 +743,7 @@ function enqueuePrint(store: Store, input: EnqueuePrintInput, at: Date): PrintRe
   store.history.set(id, {
     id,
     name: input.name,
+    source: input.source,
     designId: input.designId,
     printedBy: input.printedBy,
     copies: input.copies,
@@ -758,7 +766,7 @@ function createPrint(store: Store, request: PrintRequest, at: Date): PrintRespon
   const images = request.images.map((image, index) => decodePngImage(image, index));
   return enqueuePrint(
     store,
-    { name: request.name, designId: request.designId ?? null, printedBy: request.printedBy ?? null, copies: request.copies, images },
+    { name: request.name, source: request.source ?? 'studio', designId: request.designId ?? null, printedBy: request.printedBy ?? null, copies: request.copies, images },
     at,
   );
 }
@@ -766,21 +774,33 @@ function createPrint(store: Store, request: PrintRequest, at: Date): PrintRespon
 function reprintHistory(store: Store, entry: StoredHistoryEntry, at: Date): PrintResponse {
   return enqueuePrint(
     store,
-    { name: entry.name, designId: entry.designId, printedBy: entry.printedBy, copies: entry.copies, images: entry.images },
+    { name: entry.name, source: entry.source, designId: entry.designId, printedBy: entry.printedBy, copies: entry.copies, images: entry.images },
     at,
   );
 }
 
-function toHistoryEntry(entry: StoredHistoryEntry): HistoryEntry {
+/** Jobs still in the simulated queue are pending/processing; jobs that left it completed. */
+function historyState(store: Store, entry: StoredHistoryEntry): HistoryJobState {
+  const states = entry.jobIds.map((id) => store.jobs.get(id)?.state);
+  if (states.includes('processing')) return 'processing';
+  if (states.includes('pending')) return 'pending';
+  return 'completed';
+}
+
+function toHistoryEntry(store: Store, entry: StoredHistoryEntry): HistoryEntry {
   return {
     id: entry.id,
     name: entry.name,
+    source: entry.source,
+    state: historyState(store, entry),
     designId: entry.designId,
     printedBy: entry.printedBy,
+    host: null,
     labelCount: entry.images.length,
     copies: entry.copies,
     jobIds: entry.jobIds,
-    previewUrl: `/api/history/${entry.id}/images/0.png`,
+    imageCount: entry.images.length,
+    previewUrl: entry.images.length ? `/api/history/${entry.id}/images/0.png` : null,
     createdAt: entry.createdAt,
   };
 }
@@ -791,9 +811,11 @@ function listHistory(store: Store, url: URL): HistoryEntry[] {
   const limit = limitParam ? clampInt(Number(limitParam), 1, 1000) : 50;
 
   let list = [...store.history.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const source = url.searchParams.get('source');
   if (before) list = list.filter((h) => h.createdAt < before);
+  if (source) list = list.filter((h) => h.source === source);
   list = list.slice(0, limit);
-  return list.map(toHistoryEntry);
+  return list.map((entry) => toHistoryEntry(store, entry));
 }
 
 // ---------------------------------------------------------------------------
@@ -1053,6 +1075,7 @@ async function routeRequest(store: Store, req: Connect.IncomingMessage, res: Ser
       return;
     }
     if (method === 'GET' && pathname === '/api/history') {
+      refreshQueue(store, at);
       sendJson(res, 200, listHistory(store, url));
       return;
     }
@@ -1102,7 +1125,7 @@ async function routeRequest(store: Store, req: Connect.IncomingMessage, res: Ser
     if (method === 'POST' && pathname === '/api/printer/test') {
       requireAdmin(store, req);
       const image = buildTestLabelPng();
-      const result = enqueuePrint(store, { name: 'Test label', designId: null, printedBy: null, copies: 1, images: [image] }, at);
+      const result = enqueuePrint(store, { name: 'Test label', source: 'studio', designId: null, printedBy: null, copies: 1, images: [image] }, at);
       // Like the real server, test prints are not recorded in history.
       store.history.delete(result.historyId);
       sendJson(res, 200, { historyId: '', jobIds: result.jobIds });

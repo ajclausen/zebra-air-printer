@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useShallow } from 'zustand/react/shallow';
 import { elementBounds } from '@/doc/elements';
 import { labelSize, LABEL_CORNER_RADIUS_DOTS, type Size } from '@/doc/geometry';
+import { isPdf } from '@/import/prepare';
 import { cn } from '@/lib/utils';
 import { useEditor } from '../store';
 import { computeViewport, useViewport } from '../viewport';
@@ -60,7 +61,7 @@ export function Workspace({ children, onDropFiles }: { children?: React.ReactNod
   const [containerRef, container] = useElementSize<HTMLDivElement>();
   const hostRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<CanvasController | null>(null);
-  const [dragging, setDragging] = useState(false);
+  const [dragging, setDragging] = useState<'image' | 'pdf' | false>(false);
 
   const { doc, selection, unit, editRequest } = useEditor(
     useShallow((s) => ({ doc: s.doc, selection: s.selection, unit: s.unit, editRequest: s.editRequest })),
@@ -150,7 +151,7 @@ export function Workspace({ children, onDropFiles }: { children?: React.ReactNod
     (event: React.DragEvent) => {
       event.preventDefault();
       setDragging(false);
-      const files = [...event.dataTransfer.files].filter((f) => f.type.startsWith('image/'));
+      const files = [...event.dataTransfer.files].filter((f) => f.type.startsWith('image/') || isPdf(f));
       if (!files.length || !onDropFiles) return;
       const point = controllerRef.current?.clientToScene(event.clientX, event.clientY) ?? { x: 0, y: 0 };
       onDropFiles(files, point);
@@ -173,7 +174,7 @@ export function Workspace({ children, onDropFiles }: { children?: React.ReactNod
       onDragOver={(event) => {
         if ([...event.dataTransfer.types].includes('Files')) {
           event.preventDefault();
-          setDragging(true);
+          setDragging([...event.dataTransfer.items].some((item) => item.type === 'application/pdf') ? 'pdf' : 'image');
         }
       }}
       onDragLeave={(event) => {
@@ -193,7 +194,7 @@ export function Workspace({ children, onDropFiles }: { children?: React.ReactNod
           className={cn('pointer-events-none absolute z-20 flex items-center justify-center rounded-[inherit] border-2 border-dashed border-cobalt bg-cobalt/5')}
           style={paperStyle}
         >
-          <span className="rounded-md bg-paper px-3 py-1.5 text-sm font-medium text-cobalt shadow-pop">Drop to add the image</span>
+          <span className="rounded-md bg-paper px-3 py-1.5 text-sm font-medium text-cobalt shadow-pop">{dragging === 'pdf' ? 'Drop to print the shipping label' : 'Drop to add the image'}</span>
         </div>
       )}
       <div className="pointer-events-none absolute inset-0 z-20" style={{ paddingLeft: RULER_SIZE, paddingTop: RULER_SIZE }}>
