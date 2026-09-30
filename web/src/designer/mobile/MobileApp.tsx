@@ -1,5 +1,5 @@
 import type { DesignSummary } from '@eco/shared';
-import { ChevronLeftIcon, MinusIcon, PlusIcon, PrinterIcon, SearchIcon } from 'lucide-react';
+import { ChevronLeftIcon, ChevronRightIcon, MinusIcon, PackageIcon, PlusIcon, PrinterIcon, RotateCwIcon, SearchIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,8 @@ import { LabelThumb } from '../panels/LabelCard';
 import { useTemplateThumbnail } from '../panels/thumbnails';
 import { PrinterStatusPill } from '../PrinterStatus';
 import { getPrintedBy, setPrintedBy, usePrintJob } from '../printing';
+import { acceptShippingFile, FallbackNotice, LabelImage, PageStepper, ShippingStatus, SourcePage, useFilePicker } from '../shipping/ShippingPreview';
+import { useShippingFile } from '../shipping/useShippingFile';
 import { BrandMark } from '../TopBar';
 
 interface Picked {
@@ -60,18 +62,34 @@ function SavedCard({ design, onPick }: { design: DesignSummary; onPick: (p: Pick
   );
 }
 
-function Chooser({ onPick }: { onPick: (p: Picked) => void }) {
+function Chooser({ onPick, onShippingFile }: { onPick: (p: Picked) => void; onShippingFile: (file: File) => void }) {
   const [query, setQuery] = useState('');
   const saved = useDesigns({});
   const q = query.trim().toLowerCase();
   const match = (...s: Array<string | null>) => !q || s.some((x) => x?.toLowerCase().includes(q));
   const savedItems = (saved.data ?? []).filter((d) => match(d.name, d.category));
+  const picker = useFilePicker((file) => acceptShippingFile(file, onShippingFile));
   return (
     <div className="flex flex-col gap-6 px-4 pt-4 pb-10">
       <div>
         <h1 className="text-2xl font-semibold tracking-[-0.02em] text-ink">Print a label</h1>
         <p className="mt-1 text-sm text-ink-3">Pick a label, fill in the details, and print. Use a computer or tablet to design new labels.</p>
       </div>
+      <button
+        type="button"
+        onClick={picker.open}
+        className="flex items-center gap-3 rounded-xl border border-line bg-paper p-3.5 text-left shadow-[0_1px_0_rgb(24_26_31/0.04)] active:bg-surface"
+      >
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-cobalt-soft text-cobalt">
+          <PackageIcon className="size-5" />
+        </span>
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold text-ink">Shipping label</span>
+          <span className="block text-xs text-ink-3">Print the label from a FedEx, UPS, or USPS PDF</span>
+        </span>
+        <ChevronRightIcon className="ml-auto size-4 shrink-0 text-ink-4" />
+        {picker.input}
+      </button>
       <div className="relative">
         <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-4" />
         <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search labels" aria-label="Search labels" className="h-11 pl-9 text-base" />
@@ -100,6 +118,29 @@ function Chooser({ onPick }: { onPick: (p: Picked) => void }) {
           </section>
         );
       })}
+    </div>
+  );
+}
+
+/** Copies and the Print button, pinned to the bottom of the screen. */
+function PrintBar({ copies, setCopies, busy, disabled, onPrint }: { copies: number; setCopies: (n: number) => void; busy: boolean; disabled?: boolean; onPrint: () => void }) {
+  return (
+    <div className="fixed inset-x-0 bottom-0 flex items-center gap-3 border-t border-line bg-paper/95 px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur">
+      <div className="flex h-11 items-center rounded-lg border border-line-strong" role="group" aria-label="Copies">
+        <button type="button" className="flex h-full w-10 items-center justify-center text-ink-2 disabled:opacity-40" onClick={() => setCopies(Math.max(1, copies - 1))} disabled={copies <= 1} aria-label="Fewer copies">
+          <MinusIcon className="size-4" />
+        </button>
+        <span className="tabular w-8 text-center text-base font-medium" aria-live="polite">
+          {copies}
+        </span>
+        <button type="button" className="flex h-full w-10 items-center justify-center text-ink-2 disabled:opacity-40" onClick={() => setCopies(Math.min(100, copies + 1))} disabled={copies >= 100} aria-label="More copies">
+          <PlusIcon className="size-4" />
+        </button>
+      </div>
+      <Button variant="primary" size="lg" className="h-11 flex-1 text-base" disabled={busy || disabled} onClick={onPrint}>
+        {busy ? <Spinner /> : <PrinterIcon />}
+        Print {copies > 1 ? `${copies} labels` : 'label'}
+      </Button>
     </div>
   );
 }
@@ -157,32 +198,70 @@ function Filler({ picked, onBack }: { picked: Picked; onBack: () => void }) {
       <Field label="Your name (optional)" htmlFor="m-name">
         <Input id="m-name" value={name} onChange={(e) => setName(e.target.value)} className="h-11 text-base" autoComplete="name" />
       </Field>
-      <div className="fixed inset-x-0 bottom-0 flex items-center gap-3 border-t border-line bg-paper/95 px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur">
-        <div className="flex h-11 items-center rounded-lg border border-line-strong" role="group" aria-label="Copies">
-          <button type="button" className="flex h-full w-10 items-center justify-center text-ink-2 disabled:opacity-40" onClick={() => setCopies(Math.max(1, copies - 1))} disabled={copies <= 1} aria-label="Fewer copies">
-            <MinusIcon className="size-4" />
-          </button>
-          <span className="tabular w-8 text-center text-base font-medium" aria-live="polite">
-            {copies}
-          </span>
-          <button type="button" className="flex h-full w-10 items-center justify-center text-ink-2 disabled:opacity-40" onClick={() => setCopies(Math.min(100, copies + 1))} disabled={copies >= 100} aria-label="More copies">
-            <PlusIcon className="size-4" />
-          </button>
-        </div>
-        <Button
-          variant="primary"
-          size="lg"
-          className="h-11 flex-1 text-base"
-          disabled={busy || Boolean(previewError)}
-          onClick={() => {
-            setPrintedBy(name);
-            void print({ doc: picked.doc, instances: [{ values, counter }], copies, name: picked.name, designId: picked.designId });
-          }}
-        >
-          {busy ? <Spinner /> : <PrinterIcon />}
-          Print {copies > 1 ? `${copies} labels` : 'label'}
-        </Button>
+      <PrintBar
+        copies={copies}
+        setCopies={setCopies}
+        busy={busy}
+        disabled={Boolean(previewError)}
+        onPrint={() => {
+          setPrintedBy(name);
+          void print({ doc: picked.doc, instances: [{ values, counter }], copies, name: picked.name, designId: picked.designId });
+        }}
+      />
+    </div>
+  );
+}
+
+function ShippingScreen({ file, onBack }: { file: File; onBack: () => void }) {
+  const settings = useStudioSettings();
+  const state = useShippingFile(file);
+  const [index, setIndex] = useState(0);
+  const [flipped, setFlipped] = useState(false);
+  const [copies, setCopies] = useState(settings.defaultCopies);
+  const [name, setName] = useState(getPrintedBy());
+  const { printImages, busy } = usePrintJob();
+  const prepared = state.status === 'ready' ? state.prepared : null;
+  const label = prepared?.labels[Math.min(index, prepared.labels.length - 1)];
+
+  return (
+    <div className="flex flex-col gap-5 px-4 pt-3 pb-28">
+      <button type="button" onClick={onBack} className="-ml-1 flex items-center gap-1 self-start py-1 text-sm font-medium text-cobalt">
+        <ChevronLeftIcon className="size-4" /> All labels
+      </button>
+      <h1 className="truncate text-xl font-semibold tracking-[-0.015em] text-ink">{prepared?.name ?? file.name}</h1>
+      <div className="flex justify-center rounded-xl bg-desk p-5">
+        {label ? (
+          <LabelImage src={flipped ? label.flipped : label.upright} alt="Label as it will print" className="w-[62%] rounded-[8px]" />
+        ) : (
+          <ShippingStatus state={state} className="aspect-[812/1218] w-[62%] rounded-[8px] bg-paper" />
+        )}
       </div>
+      {label && (
+        <div className="flex items-center gap-3">
+          <SourcePage label={label} className="w-20 shrink-0" />
+          <div className="flex min-w-0 flex-1 flex-col items-start gap-2">
+            <PageStepper index={index} total={prepared?.labels.length ?? 0} onChange={setIndex} />
+            <Button variant="secondary" onClick={() => setFlipped(!flipped)} aria-pressed={flipped}>
+              <RotateCwIcon /> Rotate 180°
+            </Button>
+          </div>
+        </div>
+      )}
+      {label?.fallback && <FallbackNotice />}
+      <Field label="Your name (optional)" htmlFor="m-ship-name">
+        <Input id="m-ship-name" value={name} onChange={(e) => setName(e.target.value)} className="h-11 text-base" autoComplete="name" />
+      </Field>
+      <PrintBar
+        copies={copies}
+        setCopies={setCopies}
+        busy={busy}
+        disabled={!prepared}
+        onPrint={() => {
+          if (!prepared) return;
+          setPrintedBy(name);
+          void printImages({ name: prepared.name, images: prepared.labels.map((l) => (flipped ? l.flipped : l.upright)), copies, source: 'import' });
+        }}
+      />
     </div>
   );
 }
@@ -191,9 +270,10 @@ function Filler({ picked, onBack }: { picked: Picked; onBack: () => void }) {
 export function MobileApp() {
   const settings = useStudioSettings();
   const [picked, setPicked] = useState<Picked | null>(null);
+  const [shippingFile, setShippingFile] = useState<File | null>(null);
   useEffect(() => {
     window.scrollTo(0, 0);
-  }, [picked]);
+  }, [picked, shippingFile]);
   return (
     <div className="min-h-full bg-surface">
       <header className="sticky top-0 z-10 flex h-14 items-center gap-2 border-b border-line bg-paper/95 px-4 backdrop-blur">
@@ -203,7 +283,13 @@ export function MobileApp() {
           <PrinterStatusPill />
         </div>
       </header>
-      {picked ? <Filler picked={picked} onBack={() => setPicked(null)} /> : <Chooser onPick={setPicked} />}
+      {shippingFile ? (
+        <ShippingScreen file={shippingFile} onBack={() => setShippingFile(null)} />
+      ) : picked ? (
+        <Filler picked={picked} onBack={() => setPicked(null)} />
+      ) : (
+        <Chooser onPick={setPicked} onShippingFile={setShippingFile} />
+      )}
     </div>
   );
 }
